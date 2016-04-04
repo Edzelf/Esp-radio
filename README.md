@@ -8,6 +8,7 @@ With ESP8266 running at 80 MHz, it is capable of handling up to 256 kb bitrate.
   - SPI
   - Adafruit_GFX
   - TFT_ILI9163C
+  
  A library for the VS1053 (for ESP8266) is not available (or not easy to find).  Therefore
  a class for this module is derived from the maniacbug library and integrated in this sketch.
 
