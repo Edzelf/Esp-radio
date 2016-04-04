@@ -33,12 +33,12 @@ metadata (non mp3) after every "metaint" mp3 bytes.  This metadata is empty in m
 but if any is available the content will be presented on the TFT.
 Pushing the input button causes the player to select the next station in the hostlist.
 
- The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
- file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
- changed to use the full screenwidth if rotated to mode "3".  Now there is room for 26
- characters per line and 16 lines.  Software will work without installing the display.
+The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
+file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
+changed to use the full screenwidth if rotated to mode "3".  Now there is room for 26
+characters per line and 16 lines.  Software will work without installing the display.
 
- For configuration of the WiFi network(s): see the global data section further on.
+For configuration of the WiFi network(s): see the global data section further on.
 
- The SPI interface for VS1053 and TFT uses hardware SPI.
+The SPI interface for VS1053 and TFT uses hardware SPI.
 
