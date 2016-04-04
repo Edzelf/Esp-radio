@@ -20,13 +20,13 @@ Brief description of the program:
 First a suitable WiFi network is found and a connection is made.
 Then a connection will be made to a shoutcast server.  The server starts with some
 info in the header in readable ascii, ending with a double CRLF, like:
- icy-name:Classic Rock Florida - SHE Radio
- icy-genre:Classic Rock 60s 70s 80s Oldies Miami South Florida
- icy-url:http://www.ClassicRockFLorida.com
- content-type:audio/mpeg
- icy-pub:1
- icy-metaint:32768          - Metadata after 32768 bytes of MP3-data
- icy-br:128                 - in kb/sec 
+icy-name:Classic Rock Florida - SHE Radio
+icy-genre:Classic Rock 60s 70s 80s Oldies Miami South Florida
+icy-url:http://www.ClassicRockFLorida.com
+content-type:audio/mpeg
+icy-pub:1
+icy-metaint:32768          - Metadata after 32768 bytes of MP3-data
+icy-br:128                 - in kb/sec 
 
 After de double CRLF is received, the server starts sending mp3-data.  This data contains
 metadata (non mp3) after every "metaint" mp3 bytes.  This metadata is empty in most cases,
