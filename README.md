@@ -50,3 +50,5 @@ For configuration of the WiFi network(s): see the global data section further on
 
 The SPI interface for VS1053 and TFT uses hardware SPI.
 
+To do:
+  Handling UDP input messages to control the radio (from a tablet or similar).
