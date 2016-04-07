@@ -10,3 +10,5 @@ Features:
 -	The strongest available WiFi network is automatically selected.
 -	Heavily commented source code, easy to add extra functionality.
 -	Debug information through serial output.
+
+See documentation in pdf-file.
