@@ -3,31 +3,35 @@
 //*  With ESP8266 running at 80 MHz, it is capable of handling up to 256 kb bitrate.       *
 //******************************************************************************************
 // ESP8266 libraries used:
+//  - ESP8266WiFi
 //  - SPI
 //  - Adafruit_GFX
 //  - TFT_ILI9163C
+//  - EEPROM
+//  - ESP8266WebServer
 // A library for the VS1053 (for ESP8266) is not available (or not easy to find).  Therefore
 // a class for this module is derived from the maniacbug library and integrated in this sketch.
 //
-// See http://www.internet-radio.com for suitable stations.  Add the staions of your choice
-// to the table "hostlist" in the global data secting further on.
+// See http://www.internet-radio.com for suitable stations.  Add the stations of your choice
+// to the table "hostlist" in the global data secting further on.  This will be written to
+// EEPROM and can be modified through remote access through the web server.
 //
 // Brief description of the program:
 // First a suitable WiFi network is found and a connection is made.
 // Then a connection will be made to a shoutcast server.  The server starts with some
 // info in the header in readable ascii, ending with a double CRLF, like:
-// icy-name:Classic Rock Florida - SHE Radio
-// icy-genre:Classic Rock 60s 70s 80s Oldies Miami South Florida
-// icy-url:http://www.ClassicRockFLorida.com
-// content-type:audio/mpeg
-// icy-pub:1
-// icy-metaint:32768          - Metadata after 32768 bytes of MP3-data
-// icy-br:128                 - in kb/sec 
+//  icy-name:Classic Rock Florida - SHE Radio
+//  icy-genre:Classic Rock 60s 70s 80s Oldies Miami South Florida
+//  icy-url:http://www.ClassicRockFLorida.com
+//  content-type:audio/mpeg
+//  icy-pub:1
+//  icy-metaint:32768          - Metadata after 32768 bytes of MP3-data
+//  icy-br:128                 - in kb/sec 
 //
 // After de double CRLF is received, the server starts sending mp3-data.  This data contains
 // metadata (non mp3) after every "metaint" mp3 bytes.  This metadata is empty in most cases,
 // but if any is available the content will be presented on the TFT.
-// Pushing the input button causes the player to select the next station in the hostlist.
+// Pushing the input button causes the player to select the next station in the hostlist (EEPROM).
 //
 // The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
 // file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
@@ -57,14 +61,18 @@
 //
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
+// 05-04-2016, ES: Added commands through http server on port 80.
+// 06-04-2016, ES: Added list of stations in EEPROM
 //
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <TFT_ILI9163C.h>
 #include <Ticker.h>
 #include <stdio.h>
 #include <string.h>
+#include <EEPROM.h>
 extern "C"
 {
   #include "user_interface.h"
@@ -90,6 +98,11 @@ extern "C"
 #define TFT_DC 2
 // Control button for controlling station
 #define BUTTON 0
+// Maximal number of presets in EEPROM and size of an entry
+#define EENUM 64
+#define EESIZ 64
+
+
 //
 //******************************************************************************************
 
@@ -101,12 +114,14 @@ extern "C"
 class VS1053
 {
 private:
-  uint8_t cs_pin ;                        //**< Pin where CS line is connected
-  uint8_t dcs_pin ;                       //**< Pin where DCS line is connected
-  uint8_t dreq_pin ;                      //**< Pin where DREQ line is connected
+  uint8_t       cs_pin ;                        // Pin where CS line is connected
+  uint8_t       dcs_pin ;                       // Pin where DCS line is connected
+  uint8_t       dreq_pin ;                      // Pin where DREQ line is connected
+  uint8_t       curvol ;                        // Current volume setting 0..100%    
   const uint8_t vs1053_chunk_size = 32 ;
   // SCI Register
   const uint8_t SCI_MODE          = 0x0 ;
+  const uint8_t SCI_BASS          = 0x2 ;
   const uint8_t SCI_CLOCKF        = 0x3 ;
   const uint8_t SCI_AUDATA        = 0x5 ;
   const uint8_t SCI_WRAM          = 0x6 ;
@@ -117,11 +132,11 @@ private:
   const uint8_t SCI_AICTRL1       = 0xD ;
   const uint8_t SCI_num_registers = 0xF ;
   // SCI_MODE bits
-  const uint8_t SM_SDINEW         = 11 ;  // Bitnumber in SCI_MODE
-  const uint8_t SM_RESET          = 2 ;   // Bitnumber in SCI_MODE
-  const uint8_t SM_TESTS          = 5 ;   // Bitnumber in SCI_MODE for tests
-  const uint8_t SM_LINE1          = 14 ;  // Bitnumber in SCI_MODE for Line input
-  SPISettings VS1053_SPI ;                // SPI settings for this slave
+  const uint8_t SM_SDINEW         = 11 ;        // Bitnumber in SCI_MODE
+  const uint8_t SM_RESET          = 2 ;         // Bitnumber in SCI_MODE
+  const uint8_t SM_TESTS          = 5 ;         // Bitnumber in SCI_MODE for tests
+  const uint8_t SM_LINE1          = 14 ;        // Bitnumber in SCI_MODE for Line input
+  SPISettings   VS1053_SPI ;                    // SPI settings for this slave
 protected:
   inline void await_data_request() const
   {
@@ -162,18 +177,19 @@ protected:
 public:
   // Constructor.  Only sets pin values.  Doesn't touch the chip.  Be sure to call begin()!
   VS1053 ( uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin ) ;
-  void begin() ;                                 // Begin operation.  Sets pins correctly,
-                                                 // and prepares SPI bus.
-  void startSong() ;                             // Prepare to start playing. Call this each
-                                                 // time a new song starts.
-  void playChunk ( uint8_t* data, size_t len ) ; //Play a chunk of data.  Copies the data to
-                                                 // the chip.  Blocks until complete.
-  void stopSong() ;                              // Finish playing a song. Call this after
-                                                 // the last playChunk call.
-  void setVolume ( uint8_t vol ) const ;         // Set the player volume.Level from 0-255,
-                                                 // lower is louder.
-  //Print configuration details to serial output.
-  //void printDetails ( const char *header ) const ;
+  void     begin() ;                                   // Begin operation.  Sets pins correctly,
+                                                       // and prepares SPI bus.
+  void     startSong() ;                               // Prepare to start playing. Call this each
+                                                       // time a new song starts.
+  void     playChunk ( uint8_t* data, size_t len ) ;   //Play a chunk of data.  Copies the data to
+                                                       // the chip.  Blocks until complete.
+  void     stopSong() ;                                // Finish playing a song. Call this after
+                                                       // the last playChunk call.
+  void     setVolume ( uint8_t vol ) ;                 // Set the player volume.Level from 0-100,
+                                                       // higher is louder.
+  uint8_t  getVolume() ;                               // Get the currenet volume setting.
+                                                       // higher is louder.
+  void     printDetails ( const char *header ) ;       // Print configuration details to serial output.
 } ;
 
 //******************************************************************************************
@@ -312,7 +328,6 @@ void VS1053::begin()
   write_register ( SCI_AUDATA, 44100+1 ) ;    // 44.1kHz + stereo
   write_register ( SCI_CLOCKF, 6 << 13 | 3 << 11 ) ;   // Initial clock settings
   write_register ( SCI_MODE, _BV ( SM_SDINEW ) | _BV ( SM_LINE1 ) ) ;
-  setVolume ( 40 ) ;                          // Normal volume
   delay ( 10 ) ;
   await_data_request() ;
   //write_register ( SCI_CLOCKF, 0xB800 ) ;   // Experimenting with higher clock settings
@@ -322,16 +337,24 @@ void VS1053::begin()
   VS1053_SPI = SPISettings ( 8000000, MSBFIRST, SPI_MODE0 ) ;
   //printDetails ( "After last clocksetting, idling" ) ;
   delay (100) ;
+  setVolume ( 90 ) ;                          // Initial volume
 }
 
-void VS1053::setVolume ( uint8_t vol ) const
+void VS1053::setVolume ( uint8_t vol )
 {
   // Set volume.  Both left and right.
-  uint16_t value = vol ;
+  // Input value is 0..100.  100 is the loudest.
+  uint16_t value ;                                      // Value to send to SCI_VOL
+  
+  curvol = vol ;                                        // Save for later use
+  value = map ( vol, 0, 100, 0xFF, 0x00 ) ;             // 0..100% to one channel
+  value = ( value << 8 ) | value ;
+  write_register ( SCI_VOL, value ) ;                   // Volume left and right
+}
 
-  value <<= 8 ;
-  value |= vol ;
-  write_register ( SCI_VOL, value ) ; // VOL
+uint8_t VS1053::getVolume()                             // Get the currenet volume setting.
+{
+  return curvol ;
 }
 
 void VS1053::startSong()
@@ -349,9 +372,7 @@ void VS1053::stopSong()
   sdi_send_zeroes ( 2048 ) ;
 }
 
-
-/* printDetails commented out for now, but can be used for debugging.
-void VS1053::printDetails ( const char *header ) const
+void VS1053::printDetails ( const char *header )
 {
   char         sbuf[60] ;                // For debugging
   unsigned int regbuf[16] ;
@@ -372,7 +393,6 @@ void VS1053::printDetails ( const char *header ) const
   }
   dbgprint ( sbuf ) ;
 }
-*/
 
 //******************************************************************************************
 // End VS1053 stuff.                                                                       *
@@ -385,56 +405,65 @@ void VS1053::printDetails ( const char *header ) const
 //******************************************************************************************
 enum datamode_t { INIT, HEADER, DATA, METADATA } ;  // State for datastream
 // Global variables
-//  Configure the next 2 lines for your WiFi network(s)
-const char*   networks[]  = { "NETW-01",  "NETW-02", "NETW-03 } ;
-const char*   passwords[] = { "PW-01",    "PW-02",   "PW-03" } ;
-char          ssid[33] ;                // SSID of selected WiFi network
-char          password[33] ;            // Password for selected WiFi network
-const int     DEBUG = 1 ;
-WiFiClient    client ;                  // An instance of the client
-TFT_ILI9163C  tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
-Ticker        tckr ;                    // For timing 10 sec
-uint32_t      totalcount = 0 ;          // Counter mp3 data
-char          sbuf[100] ;               // Voor debug regels
-datamode_t    datamode ;                // State of datastream
-int           metacount ;               // Number of bytes in metadata
-int           datacount ;               // Counter databytes before metadata
-char          metaline[150] ;           // Readable line in metadata
-char          streamtitle[150] ;        // Streamtitle from metadata
-int           bitrate = 0 ;             // Bitrate in kb/sec            
-int           metaint = 0 ;             // Number of databytes between metadata
-const char*   hostlist[] = { "109.206.96.34:8100",
-                             "us1.internet-radio.com:8180",
-                             "us2.internet-radio.com:8050",
-                             "us1.internet-radio.com:15919",
-                             "us2.internet-radio.com:8132",
-                             "us1.internet-radio.com:8105",
-                             "205.164.36.153:80",	// BOM PSYTRANCE (1.FM TM)  64-kbps
-                             "205.164.62.15:10032",	// 1.FM - GAIA, 64-kbps
-                             "109.206.96.11:80",	// TOP FM Beograd 106,8  64-kpbs
-                             "85.17.121.216:8468",	// RADIO LEHOVO 971 GREECE, 64-kbps
-                             "85.17.121.103:8800",	// STAR FM 88.8 Corfu Greece, 64-kbps
-                             "85.17.122.39:8530",	// www.stylfm.gr laiko, 64-kbps
-                             "144.76.204.149:9940",	// RADIO KARDOYLA - 64-kbps 22050 Hz
-                             "198.50.101.130:8245",	// La Hit Radio, Rock - Metal - Hard Rock, 32	
-                             "94.23.66.155:8106",	// *ILR CHILL & GROOVE* 64-kbps
-                             "205.164.62.22:7012",	// 1.FM - ABSOLUTE TRANCE (EURO) RADIO   64-kbps
-                             "205.164.62.13:10144",	// 1.FM - Sax4Ever   64-kbps 
-                             "83.170.104.91:31265",	// Paradise Radio 106   64-kbps
-                             "205.164.62.13:10152",	// Costa Del Mar - Chillout (1.FM), 64-kbps
-                             "46.28.48.140:9998", 	// AutoDJ, latin, cumbia, salsa, merengue, regueton, pasillos , 48-kbps
-                             "50.7.173.162:8116", 	// Big B Radio #CPOP - Asian Music - 64k
-                             "50.7.173.162:8097", 	// Big B Radio #AsianPop - 64kbps
-                             "195.154.167.62:7264", 	// Radio China - 48kbps
-                             "198.154.106.104:8985",	// radioICAST.com Acid Jazz Blues Rock 96K
-                             NULL } ;
-int           hostindex = 0 ;           // Index in hostlist
-char          host[100] ;               // The hostname
-char          name[100] ;               // Stationname
-int           port ;                    // Port number for host
-bool          buttonpushed = false ;    // Select button pushed
+//  Configure the next 2 lines for your WiFi network(s):
+const char*      networks[]  = { "NETW-01",    "NETW-02",    "NETW-03" } ;
+const char*      passwords[] = { "PASSWD-01",  "PASSWD-02",  "PASSWD-03" } ;
+char             ssid[33] ;                // SSID of selected WiFi network
+char             password[33] ;            // Password for selected WiFi network
+const int        DEBUG = 1 ;
+WiFiClient       mp3client ;               // An instance of the mp3 client
+ESP8266WebServer cmdserver ( 80 ) ;        // And an instance of the server
+WiFiClient       cmdclient ;               // An instance of the remote cmd client
+String           cmd ;                     // Command from remote
+TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
+Ticker           tckr ;                    // For timing 10 sec
+uint32_t         totalcount = 0 ;          // Counter mp3 data
+char             sbuf[100] ;               // Voor debug regels
+datamode_t       datamode ;                // State of datastream
+int              metacount ;               // Number of bytes in metadata
+int              datacount ;               // Counter databytes before metadata
+char             metaline[150] ;           // Readable line in metadata
+char             streamtitle[150] ;        // Streamtitle from metadata
+int              bitrate = 0 ;             // Bitrate in kb/sec            
+int              metaint = 0 ;             // Number of databytes between metadata
+// List of preset stations.
+// This will be copied to EEPROM if EEPROM is empty.  The first entry [0] is reserved
+// for detection of a not yet filled EEPROM.
+// In EEPROM, every entry takes EESIZ bytes.
+const char*      hostlist[] = { "stations from remote control",  // Reserved entry
+                                "109.206.96.34:8100",
+                                "us1.internet-radio.com:8180",
+                                "us2.internet-radio.com:8050",
+                                "us1.internet-radio.com:15919",
+                                "us2.internet-radio.com:8132",
+                                "us1.internet-radio.com:8105",
+                                "205.164.36.153:80",    // BOM PSYTRANCE (1.FM TM)  64-kbps
+                                "205.164.62.15:10032",  // 1.FM - GAIA, 64-kbps
+                                "109.206.96.11:80",     // TOP FM Beograd 106,8  64-kpbs
+                                "85.17.121.216:8468",   // RADIO LEHOVO 971 GREECE, 64-kbps
+                                "85.17.121.103:8800",   // STAR FM 88.8 Corfu Greece, 64-kbps
+                                "85.17.122.39:8530",    // www.stylfm.gr laiko, 64-kbps
+                                "144.76.204.149:9940",  // RADIO KARDOYLA - 64-kbps 22050 Hz
+                                "198.50.101.130:8245",  // La Hit Radio, Rock - Metal - Hard Rock, 32	
+                                "94.23.66.155:8106",    // *ILR CHILL & GROOVE* 64-kbps
+                                "205.164.62.22:7012",   // 1.FM - ABSOLUTE TRANCE (EURO) RADIO   64-kbps
+                                "205.164.62.13:10144",  // 1.FM - Sax4Ever   64-kbps 
+                                "83.170.104.91:31265",  // Paradise Radio 106   64-kbps
+                                "205.164.62.13:10152",  // Costa Del Mar - Chillout (1.FM), 64-kbps
+                                "46.28.48.140:9998",    // AutoDJ, latin, cumbia, salsa, merengue, regueton, pasillos , 48-kbps
+                                "50.7.173.162:8116",    // Big B Radio #CPOP - Asian Music - 64k
+                                "50.7.173.162:8097",    // Big B Radio #AsianPop - 64kbps
+                                "195.154.167.62:7264",  // Radio China - 48kbps
+                                "198.154.106.104:8985", // radioICAST.com Acid Jazz Blues Rock 96K
+                                NULL } ;
+int              hostindex = 1 ;                           // Index in hostlist (EEPROM)
+char             host[EESIZ] ;                             // The hostname
+char             sname[100] ;                              // Stationname
+int              port ;                                    // Port number for host
+bool             nextchnreq = false ;                      // Select button pushed
+char             newstation[EESIZ] ;                       // Station:port from remote
 // The object for the MP3 player
-VS1053        mp3 (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
+VS1053           mp3 (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
 
 
 //******************************************************************************************
@@ -480,10 +509,10 @@ void listNetworks()
 
   // Print the network number and name for each network found and
   // find the strongest acceptable network
-  found = false ;
   for ( i = 0 ; i < numSsid ; i++ )
   {
     acceptable = "" ;                                    // Assume not acceptable
+    found = false ;
     for ( j = 0 ; j < sizeof ( networks ) / sizeof ( networks[0] ) ; j++ )
     {
       // Check if this network is acceptable
@@ -587,8 +616,8 @@ void timer100()
       oldval = newval ;                       // Remember value
       if ( newval == LOW )                    // Button pushed?
       {
-        buttonpushed = true ;                 // Remember action
-        //dbgprint ( "Button pushed" ) ;
+        nextchnreq = true ;                   // Remember action
+        dbgprint ( "Button pushed" ) ;
       }
     }
   }
@@ -602,16 +631,41 @@ void timer100()
 //******************************************************************************************
 void connecttohost()
 {
-  char* p ;
+  int      i ;                                // Index free EEPROM entry
+  char*    eepromentry ;                      // Pointer to copy of EEPROM entry 
+  char*    p ;                                // Pointer in hostname
 
-  if ( client.connected() )
+  
+  if ( mp3client.connected() )
   {
     dbgprint ( "Stop client" ) ;
-    client.flush() ;
-    client.stop() ;
+    mp3client.flush() ;
+    mp3client.stop() ;
   }
   displayinfo ( "   ** Internet radio **", 0, WHITE ) ;
-  strcpy ( host, hostlist[hostindex] ) ;      // Select first station number
+  if ( newstation[0] )                        // New station specified by host?
+  {
+    if ( strstr ( newstation, ":" ) )         // Correct format?
+    {
+      i = find_free_eeprom_entry() ;          // Find free EEPROM entry (or entry 1)
+      put_eeprom_station ( i, newstation ) ;  // Store new station
+      hostindex = i ;                         // Select this one
+    }
+    newstation[0] = '\0' ;                    // Handled this one 
+  }
+  while ( true )                              // Find entry in hostlist that contains a colon.
+  {
+    eepromentry = get_eeprom_station ( hostindex ) ;
+    if ( strstr ( eepromentry, ":" ) )
+    {
+      break ;
+    }
+    if ( ++hostindex == EENUM )
+    {
+      hostindex = 1 ;
+    }
+  }
+  strcpy ( host, eepromentry ) ;              // Select first station number
   p = strstr ( host, ":" ) ;                  // Search for separator
   *p++ = '\0' ;                               // Remove port from string and point to port
   port = atoi ( p ) ;                         // Get portnumber as integer
@@ -620,17 +674,154 @@ void connecttohost()
   dbgprint ( sbuf ) ;
   displayinfo ( sbuf, 60, YELLOW ) ;          // Show info at position 60
   delay ( 2000 ) ;                            // Show for some time
-  client.flush() ;
-  if ( client.connect ( host, port ) )
+  mp3client.flush() ;
+  if ( mp3client.connect ( host, port ) )
   {
     dbgprint ( "Connected to server" ) ;
     // This will send the request to the server. Request metadata.
-    client.print ( String ( "GET / HTTP/1.1\r\n" ) +
-               "Host: " + host + "\r\n" +
-               "Icy-MetaData:1\r\n" +
-               "Connection: close\r\n\r\n");
+    mp3client.print ( String ( "GET / HTTP/1.1\r\n" ) +
+                      "Host: " + host + "\r\n" +
+                      "Icy-MetaData:1\r\n" +
+                      "Connection: close\r\n\r\n");
   }
   datamode = INIT ;                           // Start in metamode
+}
+
+
+//******************************************************************************************
+//                     F I N D _ F R E E _ E E P R O M _ E N T R Y                         *
+//******************************************************************************************
+// Find a free EEPROM entry.  If none is found: return entry 1.                            *
+//******************************************************************************************
+int find_free_eeprom_entry()
+{
+  int   i ;                                      // Entry number
+  char* p ;                                      // Pointer to entry
+
+  for ( i = 1 ; i < EENUM ; i++ )
+  {
+    p = get_eeprom_station ( i ) ;               // Get next entry
+    if ( *p == '\0' )                            // Is this one empty?
+    {
+      return i ;                                 // Yes, give index to caller
+    }
+  }
+  return 1 ;                                     // No free entry, use the first
+}
+
+
+//******************************************************************************************
+//                          G E T _ E E P R O M _ S T A T I O N                            *
+//******************************************************************************************
+// Get a station from EEPROM.  parameter index is 0..63.                                   *
+// A pointer to the station will be returned.                                              *
+//******************************************************************************************
+char* get_eeprom_station ( int index )
+{
+  static char entry[EESIZ] ;            // One station from EEPROM
+  int         i ;                       // index in entry
+  int         address ;                 // Address in EEPROM 
+
+  address = index * EENUM ;             // Compute address in EEPROM
+  for ( i = 0 ; i < EESIZ ; i++ )
+  {
+    entry[i] = EEPROM.read ( address++ ) ;
+    yield() ;
+  }
+  return entry ;                       // Geef pointer terug
+}
+
+
+//******************************************************************************************
+//                          P U T _ E E P R O M _ S T A T I O N                            *
+//******************************************************************************************
+// Put a station into EEPROM.  1st parameter index is 0..63.                               *
+//******************************************************************************************
+void put_eeprom_station ( int index, const char *entry )
+{
+  int         i ;                      // index in entry
+  int         address ;                // Address in EEPROM 
+
+  address = index * EESIZ ;            // Compute address in EEPROM
+  for ( i = 0 ; i < EENUM ; i++ )
+  {
+    EEPROM.write ( address++, entry[i] ) ;
+  }
+  yield() ;
+  EEPROM.commit() ;                    // Commit the write
+}
+
+
+//******************************************************************************************
+//                  P U T _ E M P T Y _ E E P R O M _ S T A T I O N                        *
+//******************************************************************************************
+// Put an empty station into EEPROM.  parameter index is 1..63.                            *
+//******************************************************************************************
+void put_empty_eeprom_station ( int index )
+{
+  int         i ;                      // index in entry
+  int         address ;                // Address in EEPROM 
+
+  address = index * EESIZ ;            // Compute address in EEPROM
+  for ( i = 0 ; i < EENUM ; i++ )
+  {
+    EEPROM.write ( address++, 0 ) ;
+  }
+  yield() ;
+  EEPROM.commit() ;                    // Commit the write
+}
+
+
+//******************************************************************************************
+//                               F I L L _ E E P R O M                                     *
+//******************************************************************************************
+// Setup EEPROM if empty.                                                                  *
+//******************************************************************************************
+void fill_eeprom()
+{
+  int  i ;                                           // Entry number
+  int  j ;                                           // Index in hostlist
+  char *p ;                                          // Pointer to copy of EEPROM entry
+  int  fillflag ;                                    // Count of non-empty lines in EEPROM
+  
+  // See if first entry in EEPROM makes sense
+  p = get_eeprom_station ( 0 ) ;                     // Get reserved entry to check status
+  if ( strcmp ( p, hostlist[0] ) == 0 )              // Starts with a familiar pattern?
+  {
+    // Yes, show the list for debugging purposes
+    dbgprint ( "EEPROM is already filled. Available stations:" ) ;
+    for ( i = 0 ; i < EENUM ; i++ )                  // List all for entries
+    {
+      p = get_eeprom_station ( i ) ;                 // Get next entry
+      if ( *p )                                      // Check if filled with a station
+      { 
+        fillflag = i ;                               // > 0 if at least one line is filled
+        sprintf ( sbuf, "%02d - %s",
+                  i, get_eeprom_station ( i ) ) ;
+        dbgprint ( sbuf ) ;
+      }
+    }
+    if ( !fillflag )
+    {
+      return ;                                       // EEPROM already filled
+    }
+  }    
+  // EEPROM is virgin or empty.  Fill it with default stations.
+  dbgprint ( "EEPROM is empty.  Will be filled now." ) ;
+  delay ( 300 ) ;
+  j = 0 ;                                            // Point to first line in hostlist
+  for ( i = 0 ; i < EESIZ ; i++ )                    // Space for all entries
+  {
+    if ( hostlist[j] )                               // At last host in the list?
+    { 
+      put_eeprom_station ( i, hostlist[j++] ) ;      // Copy station
+    }
+    else
+    {
+      put_empty_eeprom_station ( i ) ;              // Fill with a zero pattern
+    }
+    yield() ;
+  }
 }
 
 
@@ -650,6 +841,8 @@ void setup()
   Serial.begin ( 115200 ) ;                   // For debug
   sprintf ( sbuf, "\nStarting...  Free memory %d", freemem ) ;
   dbgprint ( sbuf ) ;
+  EEPROM.begin ( 2048 ) ;                     // For station list in EEPROM
+  fill_eeprom() ;                             // Fill if empty  
   SPI.begin() ;                               // Init SPI bus
   pinMode ( BUTTON, INPUT ) ;                 // Input for control button
   mp3.begin() ;                               // Initialize VS1053 player
@@ -662,21 +855,30 @@ void setup()
   tft.println ( "Starting" ) ;
   delay(10);
   streamtitle[0] = '\0' ;                     // No title yet
+  newstation[0] = '\0' ;                      // No new station yet
   tckr.attach ( 0.100, timer100 ) ;           // Every 100 msec
+  WiFi.mode ( WIFI_STA ) ;
   listNetworks() ;                            // Search for strongest WiFi network
   // Connect to WiFi network
   WiFi.begin ( ssid, password ) ;             // Connect to selected SSID
+  sprintf ( sbuf, "Try WiFi %s", ssid ) ;     // Message to show during WiFi connect
   while ( WiFi.status() != WL_CONNECTED )
   {
-    sprintf ( sbuf, "Try WiFi %s", ssid ) ;
-    dbgprint ( sbuf ) ;
+    dbgprint ( sbuf ) ;                       // Show activity
     tft.println ( sbuf ) ;
-    delay ( 1500 ) ;
+    delay ( 2000 ) ;
   }
   sprintf ( sbuf, "IP = %d.%d.%d.%d",
                   WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
   dbgprint ( sbuf ) ;
   tft.println ( sbuf ) ;
+  dbgprint ( "Start server for commands" ) ;
+  // Specify handling of the various commands (case sensitive). All command start with "/command"
+  // followed by "?/parameter=value".  Example: "/command?volume=50"
+  cmdserver.on ( "/command", handlecmd ) ;
+  cmdserver.on ( "/",        handleroot ) ;
+  cmdserver.begin() ;
+  delay ( 1000 ) ;                            // Show IP for a wile
   connecttohost() ;                           // Connect to the selected host
 }
 
@@ -689,21 +891,26 @@ void setup()
 //******************************************************************************************
 void loop()
 {
-  if ( client.available() )                   // Any data in input stream?
+  uint8_t oldvol ;                                // To save current volume
+  
+  if ( mp3client.available() )                    // Any data in input stream?
   {
-    handlebyte ( client.read() ) ;            // Yes, handle it
+    handlebyte ( mp3client.read() ) ;             // Yes, handle it
   }  
-  if ( buttonpushed )                         // New station requested?
+  if ( nextchnreq )                               // New station requested?
   {
-    buttonpushed = false ;                    // Reset request
-    mp3.stopSong() ;                          // Stop playing
-    hostindex++ ;                             // Select next channel
-    if ( hostlist[hostindex] == NULL )        // End of list?
+    nextchnreq = false ;                          // Reset request
+    oldvol = mp3.getVolume() ;                    // Save setting
+    mp3.stopSong() ;                              // Stop playing
+    hostindex++ ;                                 // Select next channel
+    if ( hostlist[hostindex] == NULL )            // End of list?
     {
-      hostindex = 0 ;                         // Yes, back to channel 0
+      hostindex = 0 ;                             // Yes, back to channel 0
     }
-    connecttohost() ;                         // Switch to new host
+    connecttohost() ;                             // Switch to new host
+    mp3.setVolume ( oldvol ) ;                    // Restore volume setting
   }
+  cmdserver.handleClient() ;
 }
 
 
@@ -774,7 +981,7 @@ void showstreamtitle()
 //                           H A N D L E B Y T E                                           *
 //******************************************************************************************
 // Handle the next byte of data from server.                                               *
-// The buffer is defined as an array of 32 bits values to allow faster SPI.                *
+// This byte will be send to the VS1053 most of the time.                                  *
 //******************************************************************************************
 void handlebyte ( uint8_t b )
 {
@@ -782,9 +989,6 @@ void handlebyte ( uint8_t b )
   static int      metablock ;                          // Count number of metadata seen
   static bool     firstmetabyte ;                      // True if first metabyte (counter) 
   static int      LFcount ;                            // Detection of end of header
-  static int      mp3cnt ;                             // Number of byte in buffer
-  static uint32_t mp3buf[32] ;                         // Buffer for player
-  static uint8_t  *dptr ;                              // Points within mp3buf
   
   switch ( datamode )
   {
@@ -806,7 +1010,7 @@ void handlebyte ( uint8_t b )
       totalcount = 0 ;                                 // Reset totalcount
       // slip into HEADER handling, no break!
     case HEADER :                                      // Handle next byte of header 
-      if ( ( b > 0x7f ) ||                             // Ignore unprintable characters
+      if ( ( b > 0x7F ) ||                             // Ignore unprintable characters
            ( b == '\r' ) ||                            // Ignore CR
            ( b == '\0' ) )                             // Ignore NULL
       {
@@ -831,16 +1035,14 @@ void handlebyte ( uint8_t b )
         else if ( strstr ( metaline, "icy-name:" ) == metaline )
         {
           // Found station name, save it, prevent overflow
-          strncpy ( name, metaline + 9, sizeof ( name ) ) ;
-          name[sizeof(name)-1] = '\0' ;
-          displayinfo ( name, 60, YELLOW ) ;           // Show title at position 60
+          strncpy ( sname, metaline + 9, sizeof ( sname ) ) ;
+          sname[sizeof(sname)-1] = '\0' ;
+          displayinfo ( sname, 60, YELLOW ) ;          // Show title at position 60
         }
         if ( bitrate && ( LFcount == 2 ) )
         {
           datamode = DATA ;                            // Expecting data
           datacount = metaint ;                        // Number of bytes before first metadata
-          dptr = (uint8_t*)mp3buf ;                    // Prepare for new mp3 data
-          mp3cnt = 0 ;       
           mp3.startSong() ;                            // Start a new program
         }
       }
@@ -893,4 +1095,99 @@ void handlebyte ( uint8_t b )
       }
       break ;
   }
+}
+
+
+//******************************************************************************************
+//                             H A N D L E C M D                                           *
+//******************************************************************************************
+// Handling of the various commands from remote (case sensitive). All commands start with  *
+// "/command", followed by "?parameter=value".  Example: "/command?volume=50".             *
+// Available parameters:                                                                   *
+//   volume  = [up] [down] [percentage]               // Percentage between 0 and 100      *
+//   next    = 1                                      // Select next channel for listening *
+//   station = address:port                           // Store new station and select it   *
+//   delete  = 1                                      // Delete current palying station    *
+//******************************************************************************************
+void handlecmd()
+{
+  String  value ;                                     // Value of a parameter
+  String  reply = "Esp-radio okay" ;                  // Default reply
+  uint8_t oldvol ;                                    // Current volume
+  uint8_t newvol ;                                    // Requested volume
+  bool    found = false ;                             // Parameter recognized or not
+
+  if ( cmdserver.hasArg ( "volume" ) )
+  {
+    found = true ;                                    // Command recognized
+    oldvol = mp3.getVolume() ;                        // Get current volume
+    value = cmdserver.arg ( "volume" ) ;              // Get requested volume
+    if ( value == "up" )
+    {
+      newvol = oldvol + 2 ;                           // Up by 1 dB
+    }
+    else if ( value == "down" )
+    {
+      newvol = oldvol - 2 ;                           // Down by 1 dB
+    }
+    else
+    {
+      newvol = value.toInt() ;
+    }
+    newvol = min ( newvol, 100 ) ;                    // Limit to normal values
+    mp3.setVolume ( newvol ) ;                        // Set new volume
+    sprintf ( sbuf, "Volume is now %d",               // Reply new volume
+              mp3.getVolume() ) ;
+    reply = String ( sbuf ) ;                         // This will be replied
+  }
+  if ( cmdserver.hasArg ( "next" ) )                  // Next channel request
+  {
+    found = true ;                                    // Command recognized
+    nextchnreq = true ;                               // Yes, set requestflag for main loop
+  }
+  if ( cmdserver.hasArg ( "station" ) )               // Station in the form address:port
+  {
+    found = true ;                                    // Command recognized
+    value = cmdserver.arg ( "station" ) ;             // Get requested station:port
+    strcpy ( newstation, value.c_str() ) ;            // Save it for storage and selection later 
+    nextchnreq = true ;                               // And set requestflag for main loop
+  }
+  if ( cmdserver.hasArg ( "delete" ) )                // Station in the form address:port
+  {
+    found = true ;                                    // Command recognized
+    put_empty_eeprom_station ( hostindex ) ;          // Fill with a zero pattern
+    nextchnreq = true ;                               // And set requestflag for main loop
+  }
+  if ( cmdserver.hasArg ( "test" ) )                  // Station in the form address:port
+  {
+    found = true ;                                    // Command recognized
+    value = cmdserver.arg ( "test" ) ;
+    // Add test output here
+    reply = "Just testing" ;
+  }
+  // To do: commands for bass/treble control
+  if ( found )                                        // Any command seen?
+  {
+    cmdserver.send ( 200, "text/plain", reply ) ;
+  }
+  else
+  {
+    cmdserver.send ( 200, "text/plain", "Esp-radio called without legal parameters" ) ;
+  }
+}
+
+
+//******************************************************************************************
+//                             H A N D L E R O O T                                         *
+//******************************************************************************************
+// Handling of the root webpage.                                                           *
+// For now, only some info will be showed.                                                 *
+//******************************************************************************************
+void handleroot()
+{
+  String reply ;                                 // String to reply
+  
+  reply = "Esp-radio by Ed Smallenburg\r\n\r\nListening to " +
+          String ( sname ) + "\r\n\r\n" + String ( metaline ) + "\r\n" ;
+  cmdserver.send ( 200, "text/plain", reply ) ;  // Send the reply
 }
