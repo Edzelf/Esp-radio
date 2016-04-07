@@ -414,6 +414,7 @@ const int        DEBUG = 1 ;
 WiFiClient       mp3client ;               // An instance of the mp3 client
 ESP8266WebServer cmdserver ( 80 ) ;        // And an instance of the server
 WiFiClient       cmdclient ;               // An instance of the remote cmd client
+String           ipadress ;                // Own IP as a string
 String           cmd ;                     // Command from remote
 TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
 Ticker           tckr ;                    // For timing 10 sec
@@ -462,6 +463,7 @@ char             sname[100] ;                              // Stationname
 int              port ;                                    // Port number for host
 bool             nextchnreq = false ;                      // Select button pushed
 char             newstation[EESIZ] ;                       // Station:port from remote
+char             currentstat[EESIZ] ;                      // Current station:port
 // The object for the MP3 player
 VS1053           mp3 (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
 
@@ -549,7 +551,7 @@ void listNetworks()
 //                             G E T E N C R Y P T I O N T Y P E                           *
 //******************************************************************************************
 // Read the encryption type of the network and return as a 4 byte name                     *
-//******************************************************************************************
+//**********************4********************************************************************
 const char* getEncryptionType ( int thisType )
 {
   switch (thisType) 
@@ -656,6 +658,7 @@ void connecttohost()
   while ( true )                              // Find entry in hostlist that contains a colon.
   {
     eepromentry = get_eeprom_station ( hostindex ) ;
+    strcpy ( currentstat, eepromentry ) ;     // Save current station:port
     if ( strstr ( eepromentry, ":" ) )
     {
       break ;
@@ -872,6 +875,7 @@ void setup()
                   WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
   dbgprint ( sbuf ) ;
   tft.println ( sbuf ) ;
+  ipadress = String ( sbuf + 5 ) ;            // Save IP as a string
   dbgprint ( "Start server for commands" ) ;
   // Specify handling of the various commands (case sensitive). All command start with "/command"
   // followed by "?/parameter=value".  Example: "/command?volume=50"
@@ -1099,20 +1103,75 @@ void handlebyte ( uint8_t b )
 
 
 //******************************************************************************************
+//                             B U I L D P A G E                                           *
+//******************************************************************************************
+// Build the startpage for the webserver.                                                  *
+// This is just a simple page.                                                             *
+//******************************************************************************************
+String buildpage()
+{
+  String page ;
+  const char* tmppage = 
+    "<html>\r\n"
+    "<head>\r\n"
+    "<meta content=\"text/html; charset=ISO-8859-1\"\r\n"
+    "http-equiv=\"content-type\">\r\n"
+    "<title>ESP-radio</title>\r\n"
+    "</head>\r\n"
+    "<body>\r\n"
+    "<body style=\"color: rgb(0, 0, 0); background-color: rgb(204, 255, 255);\" "
+    "alink=\"#000099\" link=\"#000099\" vlink=\"#990099\">\r\n"
+    "<div style=\"text-align: center;\">\r\n"
+    "<b>ESP-radio by Ed Smallenburg</b><br><br>\r\n"
+    "<button onclick=\"httpGet('next=0')\">NEXT</button>\r\n"
+    "<button onclick=\"httpGet('volume=up')\">VOL+</button>\r\n"
+    "<button onclick=\"httpGet('volume=down')\">VOL-</button>\r\n"
+    "<button onclick=\"httpGet('status=0')\">STATUS</button>\r\n"
+    "<button onclick=\"httpGet('test=0')\">TEST</button>\r\n"
+    "<br><br>\r\n"
+    "<input size=\"50\" id=\"resultstr\" value=\"Waiting for a command....\"><br>\r\n"
+    "</div>\r\n"
+    "<script>\r\n"
+    "var IP = \"$IP$\" ;\r\n"
+    "// Send a request to the ESP-radio\r\n"
+    "function httpGet ( theReq )\r\n"
+    "{\r\n"
+    "var theUrl = \"http://\" + IP + \"/command?\" + theReq ;\r\n"
+    "var xhr = new XMLHttpRequest() ;\r\n"
+    "xhr.onreadystatechange = function() {\r\n"
+        "if ( xhr.readyState == XMLHttpRequest.DONE )\r\n"
+        "{\r\n"
+          "resultstr.value = xhr.responseText ;\r\n"
+        "}\r\n"
+    "}\r\n"
+    "xhr.open ( \"GET\", theUrl, true ) ;\r\n"
+    "xhr.send ( null ) ;\r\n"
+    "}\r\n"
+    "</script>\r\n"
+    "</body>\r\n"
+    "</html>\r\n" ;
+  
+  page = String ( tmppage ) ;          // Convert to string
+  page.replace ( "$IP$", ipadress ) ;  // Set IP-address in page
+  return page ;
+}
+
+//******************************************************************************************
 //                             H A N D L E C M D                                           *
 //******************************************************************************************
 // Handling of the various commands from remote (case sensitive). All commands start with  *
 // "/command", followed by "?parameter=value".  Example: "/command?volume=50".             *
 // Available parameters:                                                                   *
 //   volume  = [up] [down] [percentage]               // Percentage between 0 and 100      *
-//   next    = 1                                      // Select next channel for listening *
+//   next    = 0                                      // Select next channel for listening *
 //   station = address:port                           // Store new station and select it   *
-//   delete  = 1                                      // Delete current palying station    *
+//   delete  = 0                                      // Delete current palying station    *
+//   status  = 0                                      // Show current station:port         *
 //******************************************************************************************
 void handlecmd()
 {
   String  value ;                                     // Value of a parameter
-  String  reply = "Esp-radio okay" ;                  // Default reply
+  String  reply = "Esp-radio command accepted" ;      // Default reply
   uint8_t oldvol ;                                    // Current volume
   uint8_t newvol ;                                    // Requested volume
   bool    found = false ;                             // Parameter recognized or not
@@ -1144,6 +1203,7 @@ void handlecmd()
   {
     found = true ;                                    // Command recognized
     nextchnreq = true ;                               // Yes, set requestflag for main loop
+    reply = "Next station selected" ;
   }
   if ( cmdserver.hasArg ( "station" ) )               // Station in the form address:port
   {
@@ -1151,6 +1211,7 @@ void handlecmd()
     value = cmdserver.arg ( "station" ) ;             // Get requested station:port
     strcpy ( newstation, value.c_str() ) ;            // Save it for storage and selection later 
     nextchnreq = true ;                               // And set requestflag for main loop
+    reply = "New station accepted" ;
   }
   if ( cmdserver.hasArg ( "delete" ) )                // Station in the form address:port
   {
@@ -1158,11 +1219,15 @@ void handlecmd()
     put_empty_eeprom_station ( hostindex ) ;          // Fill with a zero pattern
     nextchnreq = true ;                               // And set requestflag for main loop
   }
-  if ( cmdserver.hasArg ( "test" ) )                  // Station in the form address:port
+  if ( cmdserver.hasArg ( "status" ) )                // Status request
+  {
+    found = true ;                                    // Command recognized
+    reply = String ( "Playing " ) +  String ( currentstat ) ;
+  }
+  if ( cmdserver.hasArg ( "test" ) )                  // Test command
   {
     found = true ;                                    // Command recognized
     value = cmdserver.arg ( "test" ) ;
-    // Add test output here
     reply = "Just testing" ;
   }
   // To do: commands for bass/treble control
@@ -1185,9 +1250,5 @@ void handlecmd()
 //******************************************************************************************
 void handleroot()
 {
-  String reply ;                                 // String to reply
-  
-  reply = "Esp-radio by Ed Smallenburg\r\n\r\nListening to " +
-          String ( sname ) + "\r\n\r\n" + String ( metaline ) + "\r\n" ;
-  cmdserver.send ( 200, "text/plain", reply ) ;  // Send the reply
+  cmdserver.send ( 200, "text/html", buildpage() ) ;  // Send the reply
 }
