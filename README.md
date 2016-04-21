@@ -10,5 +10,7 @@ Features:
 -	The strongest available WiFi network is automatically selected.
 -	Heavily commented source code, easy to add extra functionality.
 -	Debug information through serial output.
+-	Big ringbuffer to provide smooth playback.
+-	SPIFFS filesystem used for website, WiFi SSIDs and passwords.
 
 See documentation in pdf-file.
