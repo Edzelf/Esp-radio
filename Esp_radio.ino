@@ -79,6 +79,7 @@
 // 14-04-2016, ES: Added icon and switch preset on stream error.
 // 18-04-2016, ES: Added SPIFFS for webserver
 // 19-04-2016, ES: Added ringbuffer
+// 20-04-2016, ES: WiFi Passwords through SPIFFS files
 //
 // Define dns if you want a DNS reponder.  Mind the "LmacRxBlk:1" errors....
 //#define  dns 1
@@ -1395,6 +1396,7 @@ String getContentType ( String filename )
   else if ( filename.endsWith ( ".ico"  ) ) return "image/x-icon" ;
   else if ( filename.endsWith ( ".zip"  ) ) return "application/x-zip" ;
   else if ( filename.endsWith ( ".gz"   ) ) return "application/x-gzip" ;
+  else if ( filename.endsWith ( ".pw"   ) ) return "" ;              // Passwords are secret
   return "text/plain" ;
 }
 
@@ -1406,22 +1408,25 @@ String getContentType ( String filename )
 //******************************************************************************************
 void sendfile ( String wantedfile )
 {
-  File        inputfile ;
+  File        inputfile ;                           // The handle for the file
+  String      ct ;                                  // Content type
 
   sprintf ( sbuf, "Send file %s", wantedfile.c_str() ) ;
   dbgprint ( sbuf ) ;
   if ( SPIFFS.exists ( wantedfile ) )
   {
     inputfile = SPIFFS.open ( wantedfile, "r" ) ;
-    cmdserver.streamFile ( inputfile, getContentType ( wantedfile ) ) ;
-    dbgprint ( "File sent by FS" ) ;
+    ct = getContentType ( wantedfile ) ;                            // Empty if secret
+    if ( ct.length() )                                              // This file allowed?
+    {
+      cmdserver.streamFile ( inputfile, ct ) ;
+      dbgprint ( "File sent by FS" ) ;
+      return ;
+    }
   }
-  else
-  {
-    sprintf ( sbuf, "Send file %s not found", wantedfile.c_str() ) ;
-    dbgprint ( sbuf ) ;
-    cmdserver.send ( 404, "text/plain", sbuf ) ;                      // Send error reply
-  }
+  sprintf ( sbuf, "Send file %s not found", wantedfile.c_str() ) ;
+  dbgprint ( sbuf ) ;
+  cmdserver.send ( 404, "text/plain", sbuf ) ;                      // Send error reply
 }
 
 
