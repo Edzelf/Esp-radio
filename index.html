@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+    <title>ESP-radio</title>
+  </head>
+  <body style="color: rgb(0, 0, 0); background-color: rgb(204, 255, 255);" alink="#000099" link="#000099" vlink="#990099">
+    <div style="text-align: center;">
+      <b>ESP-radio by Ed Smallenburg</b><br><br>
+      <button onclick="httpGet('preset+=1')">NEXT</button>
+      <button onclick="httpGet('preset-=1')">PREV</button>
+      <button onclick="httpGet('volume+=2')">VOL+</button>
+      <button onclick="httpGet('volume-=2')">VOL-</button>
+      <button onclick="httpGet('status=0')">STATUS</button>
+      <button onclick="httpGet('test=0')">TEST</button>
+      <br><br>
+      <input size="50" id="resultstr" value="Waiting for a command...."><br>
+    </div>
+    <script>
+      function httpGet ( theReq )
+      {
+        var theUrl = "/?" + theReq + "&version=" + Math.random() ;
+        var xhr = new XMLHttpRequest() ;
+        xhr.onreadystatechange = function() {
+          if ( xhr.readyState == XMLHttpRequest.DONE )
+          {
+            resultstr.value = xhr.responseText ;
+          }
+        }
+        xhr.open ( "GET", theUrl, false ) ;
+        xhr.send() ;
+      }
+    </script>
+  </body>
+</html>
