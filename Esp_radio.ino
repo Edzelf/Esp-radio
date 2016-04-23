@@ -9,8 +9,10 @@
 //  - Adafruit_GFX
 //  - TFT_ILI9163C
 //  - EEPROM
-//  - ESP8266WebServer
+//  - ESPAsyncTCP
+//  - ESPAsyncWebServer
 //  - FS
+//  - ArduinoOTA
 // A library for the VS1053 (for ESP8266) is not available (or not easy to find).  Therefore
 // a class for this module is derived from the maniacbug library and integrated in this sketch.
 //
@@ -70,7 +72,8 @@
 // Issue:
 // Webserver produces error "LmacRxBlk:1" after some time.  After that it will work verry slow.
 // The program will reset the ESP8266 in such a case.  It seems that this error will show up
-// less frequently if DNS is not used.
+// less frequently if DNS is not used.  Now we have switched to async webserver, maybe that
+// results in a better stability.
 //
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
@@ -79,16 +82,17 @@
 // 14-04-2016, ES: Added icon and switch preset on stream error.
 // 18-04-2016, ES: Added SPIFFS for webserver
 // 19-04-2016, ES: Added ringbuffer
-// 20-04-2016, ES: WiFi Passwords through SPIFFS files
+// 20-04-2016, ES: WiFi Passwords through SPIFFS files, enable OTA
+// 21-04-2016, ES: Switch to Async Webserver
 //
 // Define dns if you want a DNS reponder.  Mind the "LmacRxBlk:1" errors....
-//#define  dns 1
+#define  dns 1
 #if defined ( dns )
   #include <ESP8266mDNS.h>
 #endif
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
-//#include <WiFiUdp.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <TFT_ILI9163C.h>
@@ -97,6 +101,8 @@
 #include <string.h>
 #include <EEPROM.h>
 #include <FS.h>
+#include <ArduinoOTA.h>
+
 extern "C"
 {
   #include "user_interface.h"
@@ -139,7 +145,7 @@ int              DEBUG = 1 ;
   MDNSResponder  mdns ;                                    // The MDNS responder
 #endif
 WiFiClient       mp3client ;                               // An instance of the mp3 client
-ESP8266WebServer cmdserver ( 80 ) ;                        // And an instance of the server
+AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver
 String           cmd ;                                     // Command from remote
 TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
 Ticker           tckr ;                                    // For timing 10 sec
@@ -159,8 +165,9 @@ char             sname[100] ;                              // Stationname
 int              port ;                                    // Port number for host
 char             newstation[EESIZ] ;                       // Station:port from remote
 int              delpreset = 0 ;                           // Preset to be deleted if nonzero
+uint8_t          reqvol = 80 ;                             // Requested volume
 char             currentstat[EESIZ] ;                      // Current station:port
-uint8_t          ringbuf[RINGBFSIZ] ;                      // Ringbuffer for VS1053
+uint8_t*         ringbuf ;                                 // Ringbuffer for VS1053
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
 uint16_t         rbrindex = RINGBFSIZ - 1 ;                // Emptypointer in ringbuffer
 uint16_t         rcount = 0 ;                              // Number of bytes in ringbuffer
@@ -321,21 +328,21 @@ uint16_t VS1053::read_register ( uint8_t _reg ) const
 void VS1053::write_register ( uint8_t _reg, uint16_t _value ) const
 {
   control_mode_on( );
-  SPI.write ( 2 ) ;                     // Write operation
-  SPI.write ( _reg ) ;                  // Register to write (0..0xF)
-  SPI.write16 ( _value ) ;              // Send 16 bits data  
+  SPI.write ( 2 ) ;                          // Write operation
+  SPI.write ( _reg ) ;                       // Register to write (0..0xF)
+  SPI.write16 ( _value ) ;                   // Send 16 bits data  
   await_data_request() ;
   control_mode_off() ;
 }
 
 void VS1053::sdi_send_buffer ( uint8_t* data, size_t len )
 {
-  size_t chunk_length ;                 // Length of chunk 32 byte or shorter
+  size_t chunk_length ;                      // Length of chunk 32 byte or shorter
   
   data_mode_on() ;
-  while ( len )                         // More to do?
+  while ( len )                              // More to do?
   {
-    await_data_request() ;              // Wait for space available
+    await_data_request() ;                   // Wait for space available
     chunk_length = len ;
     if ( len > vs1053_chunk_size )
     {
@@ -350,12 +357,12 @@ void VS1053::sdi_send_buffer ( uint8_t* data, size_t len )
 
 void VS1053::sdi_send_fillers ( size_t len )
 {
-  size_t chunk_length ;
+  size_t chunk_length ;                      // Length of chunk 32 byte or shorter
   
   data_mode_on() ;
-  while ( len )
+  while ( len )                              // More to do?
   {
-    await_data_request() ;
+    await_data_request() ;                   // Wait for space available
     chunk_length = len ;
     if ( len > vs1053_chunk_size )
     {
@@ -378,8 +385,8 @@ void VS1053::wram_write ( uint16_t address, uint16_t data )
 
 uint16_t VS1053::wram_read ( uint16_t address )
 {
-  write_register ( SCI_WRAMADDR, address ) ; // Start reading from WRAM 
-  return read_register ( SCI_WRAM ) ;        // Read back result
+  write_register ( SCI_WRAMADDR, address ) ;            // Start reading from WRAM 
+  return read_register ( SCI_WRAM ) ;                   // Read back result
 }
 
 bool VS1053::testComm ( const char *header )
@@ -388,16 +395,16 @@ bool VS1053::testComm ( const char *header )
   // If DREQ is low, there is problably no VS1053 connected.  Pull the line HIGH
   // in order to prevent an endless loop waiting for this signal.  The rest of the
   // software will still work, but readbacks from VS1053 will fail.
-  int       i ;                               // Loop control
+  int       i ;                                         // Loop control
   uint16_t  r1, r2, cnt = 0 ;
-  uint16_t  delta = 300 ;                     // 3 for fast SPI
+  uint16_t  delta = 300 ;                               // 3 for fast SPI
   
   if ( !digitalRead ( dreq_pin ) )
   {
     dbgprint ( "VS1053 not properly installed!" ) ;
     // Allow testing without the VS1053 module
-    pinMode ( dreq_pin,  INPUT_PULLUP ) ;     // DREQ is now input with pull-up
-    return false ;                            // Return bad result
+    pinMode ( dreq_pin,  INPUT_PULLUP ) ;               // DREQ is now input with pull-up
+    return false ;                                      // Return bad result
   }
   // Further TESTING.  Check if SCI bus can write and read without errors.
   // We will use the volume setting for this.
@@ -405,40 +412,40 @@ bool VS1053::testComm ( const char *header )
   // A maximum of 20 errors will be reported.
   if ( strstr ( header, "Fast" ) )
   {
-    delta = 3 ;                               // Fast SPI, more loops
+    delta = 3 ;                                         // Fast SPI, more loops
   }
-  dbgprint ( header ) ;                       // Show a header
+  dbgprint ( header ) ;                                 // Show a header
   for ( i = 0 ; ( i < 0xFFFF ) && ( cnt < 20 ) ; i += delta )
   {
-    write_register ( SCI_VOL, i ) ;           // Write data to SCI_VOL
-    r1 = read_register ( SCI_VOL ) ;          // Read back for the first time
-    r2 = read_register ( SCI_VOL ) ;          // Read back a second time
-    if  ( r1 != r2 || i != r1 || i != r2 )    // Check for 2 equal reads
+    write_register ( SCI_VOL, i ) ;                     // Write data to SCI_VOL
+    r1 = read_register ( SCI_VOL ) ;                    // Read back for the first time
+    r2 = read_register ( SCI_VOL ) ;                    // Read back a second time
+    if  ( r1 != r2 || i != r1 || i != r2 )              // Check for 2 equal reads
     {
       sprintf ( lsbuf, "VS1053 error retry SB:%04X R1:%04X R2:%04X", i, r1, r2 ) ;
       dbgprint ( lsbuf ) ;
       cnt++ ;
       delay ( 10 ) ;
     }
-    yield() ;                                 // Allow ESP firmware to do some bookkeeping
+    yield() ;                                           // Allow ESP firmware to do some bookkeeping
   }
-  return ( cnt == 0 ) ;                       // Return the result
+  return ( cnt == 0 ) ;                                 // Return the result
 }
 
 void VS1053::begin()
 {
-  pinMode      ( dreq_pin,  INPUT ) ;       // DREQ is an input
-  pinMode      ( cs_pin,    OUTPUT ) ;      // The SCI and SDI signals
+  pinMode      ( dreq_pin,  INPUT ) ;                   // DREQ is an input
+  pinMode      ( cs_pin,    OUTPUT ) ;                  // The SCI and SDI signals
   pinMode      ( dcs_pin,   OUTPUT ) ;
-  digitalWrite ( dcs_pin,   HIGH ) ;        // Start HIGH for SCI en SDI
+  digitalWrite ( dcs_pin,   HIGH ) ;                    // Start HIGH for SCI en SDI
   digitalWrite ( cs_pin,    HIGH ) ;
   delay ( 100 ) ;
   dbgprint ( "Reset VS1053..." ) ;
-  digitalWrite ( dcs_pin,   LOW ) ;         // Low & Low will bring reset pin low
+  digitalWrite ( dcs_pin,   LOW ) ;                     // Low & Low will bring reset pin low
   digitalWrite ( cs_pin,    LOW ) ;
   delay ( 2000 ) ;
   dbgprint ( "End reset VS1053..." ) ;
-  digitalWrite ( dcs_pin,   HIGH ) ;        // Back to normal again
+  digitalWrite ( dcs_pin,   HIGH ) ;                    // Back to normal again
   digitalWrite ( cs_pin,    HIGH ) ;
   delay ( 500 ) ;
   // Init SPI in slow mode ( 2 MHz )
@@ -449,15 +456,15 @@ void VS1053::begin()
   testComm ( "Slow SPI,Testing VS1053 read/write registers..." ) ;
   // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
   // when playing MP3.  You can modify the board, but there is a more elegant way:
-  wram_write ( 0xC017, 3 ) ;                  // Switch to MP3 mode
-  wram_write ( 0xC019, 0 ) ;                  // Switch to MP3 mode
+  wram_write ( 0xC017, 3 ) ;                            // Switch to MP3 mode
+  wram_write ( 0xC019, 0 ) ;                            // Switch to MP3 mode
   delay ( 100 ) ;
   //printDetails ( "After test loop" ) ;
-  softReset() ;                               // Do a soft reset
+  softReset() ;                                         // Do a soft reset
   // Switch on the analog parts
-  write_register ( SCI_AUDATA, 44100 + 1 ) ;  // 44.1kHz + stereo
+  write_register ( SCI_AUDATA, 44100 + 1 ) ;            // 44.1kHz + stereo
   // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
-  write_register ( SCI_CLOCKF, 6 << 12 ) ;   // Normal clock settings multiplyer 3.0 = 12.2 MHz
+  write_register ( SCI_CLOCKF, 6 << 12 ) ;              // Normal clock settings multiplyer 3.0 = 12.2 MHz
   //SPI Clock to 4 MHz. Now you can set high speed SPI clock.
   VS1053_SPI = SPISettings ( 4000000, MSBFIRST, SPI_MODE0 ) ;
   write_register ( SCI_MODE, _BV ( SM_SDINEW ) | _BV ( SM_LINE1 ) ) ;
@@ -469,7 +476,6 @@ void VS1053::begin()
   dbgprint ( lsbuf ) ;
   //printDetails ( "After last clocksetting" ) ;
   delay ( 100 ) ;
-  setVolume ( 80 ) ;                          // Initial volume
 }
 
 void VS1053::setVolume ( uint8_t vol )
@@ -478,10 +484,13 @@ void VS1053::setVolume ( uint8_t vol )
   // Input value is 0..100.  100 is the loudest.
   uint16_t value ;                                      // Value to send to SCI_VOL
   
-  curvol = vol ;                                        // Save for later use
-  value = map ( vol, 0, 100, 0xFF, 0x00 ) ;             // 0..100% to one channel
-  value = ( value << 8 ) | value ;
-  write_register ( SCI_VOL, value ) ;                   // Volume left and right
+  if ( vol != curvol )
+  {
+    curvol = vol ;                                      // Save for later use
+    value = map ( vol, 0, 100, 0xFF, 0x00 ) ;           // 0..100% to one channel
+    value = ( value << 8 ) | value ;
+    write_register ( SCI_VOL, value ) ;                 // Volume left and right
+  }
 }
 
 uint8_t VS1053::getVolume()                             // Get the currenet volume setting.
@@ -587,7 +596,7 @@ inline uint16_t ringavail()
 bool putring ( uint8_t b )            // Put one byte in the ringbuffer
 {
   // No check on available space.  See ringspace()
-  ringbuf[rbwindex] = b ;             // Put byte in ringbuffer
+  *(ringbuf+rbwindex) = b ;           // Put byte in ringbuffer
   if ( ++rbwindex == RINGBFSIZ )      // Increment pointer and
   {
     rbwindex = 0 ;                    // wrap at end
@@ -607,7 +616,7 @@ uint8_t getring()
     rbrindex = 0 ;                    // wrap at end
   }
   rcount-- ;                          // Count is now one less
-  return ringbuf[rbrindex] ;          // return the oldest byte
+  return *(ringbuf+rbrindex) ;        // return the oldest byte
 }
 
 //******************************************************************************************
@@ -1066,15 +1075,16 @@ void connectwifi()
 //******************************************************************************************
 void setup()
 {
-  char        buf[50] ;
+  FSInfo      fs_info ;
   byte        mac[6] ;
   int         i ;
 
   Serial.begin ( 115200 ) ;                          // For debug
   Serial.println() ;
   system_update_cpu_freq ( 160 ) ;                   // Set to 80/160 MHz
+  ringbuf = (uint8_t *) malloc ( RINGBFSIZ ) ;       // Create ring buffer
   SPIFFS.begin() ;                                   // Enable file system
-  FSInfo fs_info ;
+  // Show some info about the SPIFFS
   SPIFFS.info ( fs_info ) ;
   sprintf ( sbuf, "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
   dbgprint ( sbuf ) ;
@@ -1092,7 +1102,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting...  Free memory %d",
+            "Starting ESP V2.1...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
@@ -1134,6 +1144,7 @@ void setup()
   cmdserver.begin() ;
   delay ( 1000 ) ;                                   // Show IP for a wile
   connecttohost() ;                                  // Connect to the selected host
+  ArduinoOTA.begin() ;                               // Allow update over the air
 }
 
 
@@ -1151,9 +1162,6 @@ void setup()
 //******************************************************************************************
 void loop()
 {
-  int      i ;                                     // Loop control
-  uint8_t  oldvol ;                                // To save current volume
-  
   // Try to keep the ringbuffer filled up by adding as much bytes as possible 
   while ( ringspace() && mp3client.available() )
   {
@@ -1175,13 +1183,13 @@ void loop()
   }
   if ( newpreset != currentpreset )               // New station requested?
   {
-    oldvol = mp3.getVolume() ;                    // Save setting
+    mp3.setVolume ( 0 ) ;                         // Mute
     mp3.stopSong() ;                              // Stop playing
     emptyring() ;                                 // Empty the ringbuffer
     connecttohost() ;                             // Switch to new host
-    mp3.setVolume ( oldvol ) ;                    // Restore volume setting
   }
-  cmdserver.handleClient() ;                      // Sometimes 68 msec
+  mp3.setVolume ( reqvol ) ;                      // Set to requested volume
+  ArduinoOTA.handle() ;                           // Check for OTA
 }
 
 
@@ -1402,42 +1410,18 @@ String getContentType ( String filename )
 
 
 //******************************************************************************************
-//                                S E N D F I L E                                          *
-//******************************************************************************************
-// Send a requested file to the client.                                                    *
-//******************************************************************************************
-void sendfile ( String wantedfile )
-{
-  File        inputfile ;                           // The handle for the file
-  String      ct ;                                  // Content type
-
-  sprintf ( sbuf, "Send file %s", wantedfile.c_str() ) ;
-  dbgprint ( sbuf ) ;
-  if ( SPIFFS.exists ( wantedfile ) )
-  {
-    inputfile = SPIFFS.open ( wantedfile, "r" ) ;
-    ct = getContentType ( wantedfile ) ;                            // Empty if secret
-    if ( ct.length() )                                              // This file allowed?
-    {
-      cmdserver.streamFile ( inputfile, ct ) ;
-      dbgprint ( "File sent by FS" ) ;
-      return ;
-    }
-  }
-  sprintf ( sbuf, "Send file %s not found", wantedfile.c_str() ) ;
-  dbgprint ( sbuf ) ;
-  cmdserver.send ( 404, "text/plain", sbuf ) ;                      // Send error reply
-}
-
-
-//******************************************************************************************
 //                                H A N D L E F S                                          *
 //******************************************************************************************
 // Handling of requesting files from the SPIFFS. Example: /favicon.ico                     *
 //******************************************************************************************
-void handleFS()
+void handleFS ( AsyncWebServerRequest *request )
 {
-  sendfile ( cmdserver.uri() ) ;            // Filename is in URI
+  String fnam ;
+
+  fnam = request->url() ;
+  sprintf ( sbuf, "onFileRequest received %s", fnam.c_str() ) ;
+  dbgprint ( sbuf ) ;
+  request->send ( SPIFFS, fnam, getContentType ( fnam ) ) ;
 }
 
 
@@ -1447,51 +1431,54 @@ void handleFS()
 // Handling of the various commands from remote (case sensitive). All commands start with  *
 // "/command", followed by "?parameter=value".  Example: "/command?volume=50".             *
 // Examples with available parameters:                                                     *
-//   volume  = 95                           // Percentage between 0 and 100                *
-//   volume+ = 2                            // Add percentage to current volume            *
-//   volume- = 2                            // Subtract percentage from current volume     *
-//   preset  = 5                            // Select preset 5 station for listening       *
-//   preset+ = 1                            // Select next preset station for listening    *
-//   preset- = 1                            // Select previous preset station              *
-//   station = address:port                 // Store new preset station and select it      *
-//   delete  = 0                            // Delete current playing station              *
-//   delete  = 5                            // Delete preset station number 5              *
-//   status  = 0                            // Show current station:port                   *
-//   test    = 0                            // For test purposes                           *
-//   debug   = 0 or 1                       // Switch debugging on or off                  *
+//   volume     = 95                        // Percentage between 0 and 100                *
+//   upvolume   = 2                         // Add percentage to current volume            *
+//   downvolume = 2                         // Subtract percentage from current volume     *
+//   preset     = 5                         // Select preset 5 station for listening       *
+//   uppreset   = 1                         // Select next preset station for listening    *
+//   downpreset = 1                         // Select previous preset station              *
+//   station    = address:port              // Store new preset station and select it      *
+//   delete     = 0                         // Delete current playing station              *
+//   delete     = 5                         // Delete preset station number 5              *
+//   status     = 0                         // Show current station:port                   *
+//   test       = 0                         // For test purposes                           *
+//   debug      = 0 or 1                    // Switch debugging on or off                  *
 // Multiple parameters are allowed.  An extra command may be "version=<random number>" in  *
 // to prevent browsers like Edge and IE to use their cache.  This "version" is ignored.    *
 // Example: "/command?volume+=5&version=0.9775479450590543"                                *
 //******************************************************************************************
-void handleCmd()
+void handleCmd ( AsyncWebServerRequest *request )
 {
-  String       argument ;                               // Next argument in command
-  String       value ;                                  // Value of an argument
-  int          ivalue ;                                 // Value of argument as an integer
-  static char  reply[80] ;                              // Reply to client
-  uint8_t      oldvol ;                                 // Current volume
-  uint8_t      newvol ;                                 // Requested volume
-  int          numargs ;                                // Number of arguments
-  int          i ;                                      // Loop through the commands
-  bool         relative ;                               // Relative argument (+ or -)
-  uint32_t     t ;                                      // For time test
-
+  AsyncWebParameter* p ;                                // Points to parameter structure
+  String             argument ;                         // Next argument in command
+  String             value ;                            // Value of an argument
+  int                ivalue ;                           // Value of argument as an integer
+  static char        reply[80] ;                        // Reply to client
+  uint8_t            oldvol ;                           // Current volume
+  uint8_t            newvol ;                           // Requested volume
+  int                numargs ;                          // Number of arguments
+  int                i ;                                // Loop through the commands
+  bool               relative ;                         // Relative argument (+ or -)
+  uint32_t           t ;                                // For time test
+  
   t = millis() ;                                        // Timestamp at start
-  numargs = cmdserver.args() ;                          // Get number of arguments
+  numargs = request->params() ;                         // Get number of arguments
   if ( numargs == 0 )                                   // Any arguments
   {
-    // No parameters, send the startpage
-    sendfile ( "/index.html" ) ;                        // Send the file as reply
+    request->send ( SPIFFS, "/index.html",              // No parameters, send the startpage
+                    "text/html" ) ;
     return ;
   }
   strcpy ( reply, "Command(s) accepted" ) ;             // Default reply
   for ( i = 0 ; i < numargs ; i++ )
   {
-    argument = cmdserver.argName ( i ) ;                // Get the argument
-    value = cmdserver.arg ( argument.c_str() ) ;        // Get the specified value
+    p = request->getParam ( i ) ;                       // Get pointer to parameter structure
+    argument = p->name() ;                              // Get the argument
+    argument.toLowerCase() ;                            // Force to lower case
+    value = p->value() ;                                // Get the specified value
     ivalue = abs ( value.toInt() ) ;                    // Also as an integer
-    relative = argument.indexOf ( '+' ) > 0 ;           // + relative setting?
-    if ( argument.indexOf ( '-' ) > 0 )                 // - relative setting?
+    relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
+    if ( argument.indexOf ( "down" ) == 0 )             // - relative setting?
     {
       relative = true ;                                 // It's relative
       ivalue = - ivalue ;                               // But with negative value
@@ -1499,27 +1486,25 @@ void handleCmd()
     sprintf ( sbuf, "Command: %s with parameter %s converted to %d",
               argument.c_str(), value.c_str(), ivalue ) ;
     dbgprint ( sbuf ) ;
-    if ( argument.indexOf ( "volume" ) == 0 )           // Volume setting?
+    if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
     {
       // Volume may be of the form "volume+", "volume-" or "volume" for relative or absolute setting
       oldvol = mp3.getVolume() ;                        // Get current volume
       if ( relative )                                   // + relative setting?
       {
-        newvol = oldvol + ivalue ;                      // Up by 0.5 or more dB
+        reqvol = oldvol + ivalue ;                      // Up by 0.5 or more dB
       }
       else
       {
-        newvol = ivalue ;                               // Absolue setting
+        reqvol = ivalue ;                               // Absolue setting
       }
-      if ( newvol > 100 )
+      if ( reqvol > 100 )
       {
-        newvol = 100 ;                                  // Limit to normal values
+        reqvol = 100 ;                                  // Limit to normal values
       }
-      mp3.setVolume ( newvol ) ;                        // Set new volume
-      sprintf ( reply, "Volume is now %d",              // Reply new volume
-                mp3.getVolume() ) ;
+      sprintf ( reply, "Volume is now %d", reqvol ) ;  // Reply new volume
     }
-    else if ( argument.indexOf ( "preset" ) == 0 )      // Preset station?
+    else if ( argument.indexOf ( "preset" ) >= 0 )      // Preset station?
     {
       if ( relative )                                   // Relative argument?
       {
@@ -1576,10 +1561,6 @@ void handleCmd()
     {
       // Simply ignore this argument.  Used to prevent cashing in browser
     }
-    else if ( argument.indexOf ( "debug" ) == 0 )       // Debug on/off?
-    {
-      DEBUG = ivalue ;                                  // Yes, set accordingly
-    }
     // To do: commands for bass/treble control
     else
     {
@@ -1588,8 +1569,7 @@ void handleCmd()
       break ;                                           // Stop interpreting
     }
   }                                                     // End of arguments loop
-  yield() ;
-  cmdserver.send ( 200, "text/plain", reply ) ;
+  request->send ( 200, "text/plain", reply ) ;          // Send the reply
   t = millis() - t ;
   sprintf ( sbuf, "Reply sent within %d msec", t ) ;
   dbgprint ( sbuf ) ;
