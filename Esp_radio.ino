@@ -1261,14 +1261,15 @@ void showstreamtitle()
 //******************************************************************************************
 // Handle the next byte of data from server.                                               *
 // This byte will be send to the VS1053 most of the time.                                  *
+// Note that the buffer the data chunk must start at an address that is a muttiple of 4.   *
 //******************************************************************************************
 void handlebyte ( uint8_t b )
 {
-  static int      metaindex ;                          // Index in metaline
-  static bool     firstmetabyte ;                      // True if first metabyte (counter) 
-  static int      LFcount ;                            // Detection of end of header
-  static uint8_t  buf[32] ;                            // Buffer for chunk
-  static int      chunkcount = 0 ;                     // Data in chunk
+  static int       metaindex ;                          // Index in metaline
+  static bool      firstmetabyte ;                      // True if first metabyte (counter) 
+  static int       LFcount ;                            // Detection of end of header
+  static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
+  static int       chunkcount = 0 ;                     // Data in chunk
   
   switch ( datamode )
   {
