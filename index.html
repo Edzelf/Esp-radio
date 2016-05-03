@@ -14,12 +14,98 @@
       <button onclick="httpGet('status=0')">STATUS</button>
       <button onclick="httpGet('test=0')">TEST</button>
       <br><br>
+      Treble gain:<select onChange="handletone(this)" name="HA">
+        <option value="8">-12 dB</option>
+        <option value="9">-10.5 dB</option>
+        <option value="10">-9 dB</option>
+        <option value="11">-7.5 dB</option>
+        <option value="12">-6 dB</option>
+        <option value="13">-4.5 dB</option>
+        <option value="14">-3 dB</option>
+        <option value="15">-1.5 dB</option>
+        <option value="0" selected>Off</option>
+        <option value="1">+1.5 dB</option>
+        <option value="2">+3 dB</option>
+        <option value="3">+4.5 dB</option>
+        <option value="4">+6 dB</option>
+        <option value="5">+7.5 dB</option>
+        <option value="6">+9 dB</option>
+        <option value="7">+10.5 dB</option>
+      </select> 
+      Treble freq:<select onChange="handletone(this)" name="HF">
+        <option value="1">1 kHz</option>
+        <option value="2">2 kHz</option>
+        <option value="3">3 kHz</option>
+        <option value="4">4 kHz</option>
+        <option value="5">5 kHz</option>
+        <option value="6">6 kHz</option>
+        <option value="7">7 kHz</option>
+        <option value="8">8 kHz</option>
+        <option value="9">9 kHz</option>
+        <option value="10">10 kHz</option>
+        <option value="11">11 kHz</option>
+        <option value="12">12 kHz</option>
+        <option value="13">13 kHz</option>
+        <option value="14">14 kHz</option>
+        <option value="15">15 kHz</option>
+      </select> 
+      Bass gain:<select onChange="handletone(this)" name="LA">
+        <option value="0" selected>Off</option>
+        <option value="1">+1 dB</option>
+        <option value="2">+2 dB</option>
+        <option value="3">+3 dB</option>
+        <option value="4">+4 dB</option>
+        <option value="5">+5 dB</option>
+        <option value="6">+6 dB</option>
+        <option value="7">+7 dB</option>
+        <option value="8">+8 dB</option>
+        <option value="9">+9 dB</option>
+        <option value="10">+10 dB</option>
+        <option value="11">+11 dB</option>
+        <option value="12">+12 dB</option>
+        <option value="13">+13 dB</option>
+        <option value="14">+14 dB</option>
+        <option value="15">+15 dB</option>
+      </select> 
+      Bass freq:<select onChange="handletone(this)" name="LF">
+        <option value="2">10 Hz</option>
+        <option value="3">20 Hz</option>
+        <option value="4">30 Hz</option>
+        <option value="5">40 Hz</option>
+        <option value="6">50 Hz</option>
+        <option value="7">60 Hz</option>
+        <option value="8">70 Hz</option>
+        <option value="9">80 Hz</option>
+        <option value="10">90 Hz</option>
+        <option value="11">100 Hz</option>
+        <option value="12">110 Hz</option>
+        <option value="13">120 Hz</option>
+        <option value="14">130 Hz</option>
+        <option value="15">140 Hz</option>
+      </select> 
+      <br>
+      <br>
       <input size="50" id="resultstr" value="Waiting for a command...."><br>
     </div>
     <script>
       function httpGet ( theReq )
       {
         var theUrl = "/?" + theReq + "&version=" + Math.random() ;
+        var xhr = new XMLHttpRequest() ;
+        xhr.onreadystatechange = function() {
+          if ( xhr.readyState == XMLHttpRequest.DONE )
+          {
+            resultstr.value = xhr.responseText ;
+          }
+        }
+        xhr.open ( "GET", theUrl, false ) ;
+        xhr.send() ;
+      }
+
+      function handletone ( tonectrl )
+      {
+        var theUrl = "/?tone" + tonectrl.name + "=" + tonectrl.value +
+                     "&version=" + Math.random() ;
         var xhr = new XMLHttpRequest() ;
         xhr.onreadystatechange = function() {
           if ( xhr.readyState == XMLHttpRequest.DONE )

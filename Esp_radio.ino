@@ -71,9 +71,8 @@
 // This circuit is included in the documentation.
 // Issue:
 // Webserver produces error "LmacRxBlk:1" after some time.  After that it will work verry slow.
-// The program will reset the ESP8266 in such a case.  It seems that this error will show up
-// less frequently if DNS is not used.  Now we have switched to async webserver, maybe that
-// results in a better stability.
+// The program will reset the ESP8266 in such a case.  Now we have switched to async webserver,
+// it looks like the problem has disappeared.
 //
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
@@ -84,12 +83,9 @@
 // 19-04-2016, ES: Added ringbuffer
 // 20-04-2016, ES: WiFi Passwords through SPIFFS files, enable OTA
 // 21-04-2016, ES: Switch to Async Webserver
+// 27-04-2016, ES: Save settings, so same volume and preset will be used after restart
+// 03-05-2016, ES: Add bass/treble settings (see also new index.html)
 //
-// Define dns if you want a DNS reponder.  Mind the "LmacRxBlk:1" errors....
-#define  dns 1
-#if defined ( dns )
-  #include <ESP8266mDNS.h>
-#endif
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
@@ -131,7 +127,7 @@ extern "C"
 // Maximal number of presets in EEPROM and size of an entry
 #define EENUM 64
 #define EESIZ 64
-// Ringbuffer for smooth playing 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
+// Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
 #define RINGBFSIZ 20000
 
 //******************************************************************************************
@@ -141,9 +137,6 @@ enum datamode_t { INIT, HEADER, DATA, METADATA } ;         // State for datastre
 // Global variables
 String           ssid ;                                    // SSID of selected WiFi network
 int              DEBUG = 1 ;
-#if defined ( dns )
-  MDNSResponder  mdns ;                                    // The MDNS responder
-#endif
 WiFiClient       mp3client ;                               // An instance of the mp3 client
 AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver
 String           cmd ;                                     // Command from remote
@@ -166,6 +159,11 @@ int              port ;                                    // Port number for ho
 char             newstation[EESIZ] ;                       // Station:port from remote
 int              delpreset = 0 ;                           // Preset to be deleted if nonzero
 uint8_t          reqvol = 80 ;                             // Requested volume
+uint8_t          savvolume ;                               // Saved volume
+uint8_t          rtone[4]    ;                             // Requested bass/treble settings
+bool             reqtone = false ;                         // new tone setting requested
+uint8_t          savpreset ;                               // Saved preset station
+bool             savreq = false ;                          // Reqwuest to save settings      
 char             currentstat[EESIZ] ;                      // Current station:port
 uint8_t*         ringbuf ;                                 // Ringbuffer for VS1053
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
@@ -174,7 +172,7 @@ uint16_t         rcount = 0 ;                              // Number of bytes in
 //
 // List of initial preset stations.
 // This will be copied to EEPROM if EEPROM is empty.  The first entry [0] is reserved
-// for detection of a not yet filled EEPROM.
+// for detection of a not yet filled EEPROM.  The last 2 bytes for saved volume and preset.
 // In EEPROM, every entry takes EESIZ bytes.
 const char*      hostlist[] = {
                      "Stations from remote control",  // Reserved entry
@@ -246,7 +244,7 @@ protected:
   inline void control_mode_on() const
   {
     SPI.beginTransaction ( VS1053_SPI ) ; // Prevent other SPI users
-    digitalWrite ( dcs_pin, HIGH ) ;      // Bring slave in dontrol mode
+    digitalWrite ( dcs_pin, HIGH ) ;      // Bring slave in control mode
     digitalWrite ( cs_pin, LOW ) ;
   }
 
@@ -289,6 +287,8 @@ public:
                                                        // the last playChunk call.
   void     setVolume ( uint8_t vol ) ;                 // Set the player volume.Level from 0-100,
                                                        // higher is louder.
+  void     setTone ( uint8_t* rtone ) ;                // Set the player baas/treble, 4 nibbles for
+                                                       // treble gain/freq and bass gain/freq
   uint8_t  getVolume() ;                               // Get the currenet volume setting.
                                                        // higher is louder.
   void     printDetails ( const char *header ) ;       // Print configuration details to serial output.
@@ -304,7 +304,6 @@ public:
 // VS1053 class implementation.                                                            *
 //******************************************************************************************
 
-// Constructor
 VS1053::VS1053 ( uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin ) :
   cs_pin(_cs_pin), dcs_pin(_dcs_pin), dreq_pin(_dreq_pin)
 {
@@ -493,6 +492,19 @@ void VS1053::setVolume ( uint8_t vol )
   }
 }
 
+void VS1053::setTone ( uint8_t *rtone )                 // Set bass/treble (4 nibbles)
+{
+  // Set tone characteristics.  See documentation for the 4 nibbles.
+  uint16_t value = 0 ;                                  // Value to send to SCI_BASS
+  int      i ;                                          // Loop control
+  
+  for ( i = 0 ; i < 4 ; i++ )
+  {
+    value = ( value << 4 ) | rtone[i] ;                 // Shift next nibble in
+  }
+  write_register ( SCI_BASS, value ) ;                  // Volume left and right
+}
+
 uint8_t VS1053::getVolume()                             // Get the currenet volume setting.
 {
   return curvol ;
@@ -645,6 +657,30 @@ void dbgprint ( const char* p )
 
 
 //******************************************************************************************
+//                             G E T E N C R Y P T I O N T Y P E                           *
+//******************************************************************************************
+// Read the encryption type of the network and return as a 4 byte name                     *
+//*********************4********************************************************************
+const char* getEncryptionType ( int thisType )
+{
+  switch (thisType) 
+  {
+    case ENC_TYPE_WEP:
+      return "WEP " ;
+    case ENC_TYPE_TKIP:
+      return "WPA " ;
+    case ENC_TYPE_CCMP:
+      return "WPA2" ;
+    case ENC_TYPE_NONE:
+      return "None" ;
+    case ENC_TYPE_AUTO:
+      return "Auto" ;
+  }
+  return "????" ;
+}
+
+
+//******************************************************************************************
 //                                L I S T N E T W O R K S                                  *
 //******************************************************************************************
 // List the available networks and select the strongest.                                   *
@@ -702,28 +738,6 @@ void listNetworks()
 }
 
 
-//******************************************************************************************
-//                             G E T E N C R Y P T I O N T Y P E                           *
-//******************************************************************************************
-// Read the encryption type of the network and return as a 4 byte name                     *
-//*********************4********************************************************************
-const char* getEncryptionType ( int thisType )
-{
-  switch (thisType) 
-  {
-    case ENC_TYPE_WEP:
-      return "WEP " ;
-    case ENC_TYPE_TKIP:
-      return "WPA " ;
-    case ENC_TYPE_CCMP:
-      return "WPA2" ;
-    case ENC_TYPE_NONE:
-      return "None" ;
-    case ENC_TYPE_AUTO:
-      return "Auto" ;
-  }
-  return "????" ;
-}
 
 
 //******************************************************************************************
@@ -731,12 +745,14 @@ const char* getEncryptionType ( int thisType )
 //******************************************************************************************
 // Extra watchdog.  Called every 10 seconds.                                               *
 // If totalcount has not been changed, there is a problem and a reset will be performed.   *
+// Note that a "yield()" within this routine or in called functions will cause a crash!    *
 //******************************************************************************************
 void timer10sec()
 {
   static uint32_t oldtotalcount = 7321 ;        // Needed foor change detection
   static uint8_t  morethanonce = 0 ;            // Counter for succesive fails
-  
+  static uint8_t  t600 = 0 ;                    // Counter for 10 minutes
+
   if ( totalcount == oldtotalcount )
   {
     // No data detected!
@@ -762,6 +778,16 @@ void timer10sec()
     }
     oldtotalcount = totalcount ;                // Save for comparison in next cycle
   }
+  if ( t600++ == 60 )                           // 10 minutes over?
+  {
+    t600 = 0 ;                                  // Yes, reset counter
+    dbgprint ( "10 minutes over" ) ;
+    if ( currentpreset != savpreset || mp3.getVolume() != savvolume )
+    {
+      // Volume or preset has changed, set request to save them in EEPROM 
+      savreq = true ;
+    }  
+  }
 }
 
 
@@ -776,28 +802,91 @@ void timer100()
   static int  oldval = HIGH ;
   int         newval ;
   
-  if ( ++count10sec == 100  )                 // 10 seconds passed?
+  if ( ++count10sec == 100  )                     // 10 seconds passed?
   {
-    timer10sec() ;                            // Yes, do 10 second procedure
-    count10sec = 0 ;                          // Reset count
+    timer10sec() ;                                // Yes, do 10 second procedure
+    count10sec = 0 ;                              // Reset count
   }
   else
   {
-    newval = digitalRead ( BUTTON ) ;         // Test if below certain level
+    newval = digitalRead ( BUTTON ) ;             // Test if below certain level
     if ( newval != oldval )
     {
-      oldval = newval ;                       // Remember value
-      if ( newval == LOW )                    // Button pushed?
+      oldval = newval ;                           // Remember value
+      if ( newval == LOW )                        // Button pushed?
       {
-        newpreset = currentpreset + 1 ;       // Remember action
+        newpreset = currentpreset + 1 ;           // Remember action
         //dbgprint ( "Button pushed" ) ;
       }
     }
   }
-  while ( mp3.data_request() && ringavail() )     // Try to keep VS1053 filled
+  //while ( mp3.data_request() && ringavail() )     // Try to keep VS1053 filled
+  //{
+  //  handlebyte ( getring() ) ;                    // Yes, handle it
+  //}
+}
+
+
+//******************************************************************************************
+//                              D I S P L A Y I N F O                                      *
+//******************************************************************************************
+// Show a string on the LCD at a specified y-position in a specified color                 *
+//******************************************************************************************
+void displayinfo ( const char *str, int pos, uint16_t color )
+{
+  tft.fillRect ( 0, pos, 160, 40, BLACK ) ;   // Clear the space for new info
+  tft.setTextColor ( color ) ;                // Set the requested color
+  tft.setCursor ( 0, pos ) ;                  // Prepare to show the info
+  tft.print ( str ) ;                         // Show the string
+}
+
+
+//******************************************************************************************
+//                        S H O W S T R E A M T I T L E                                    *
+//******************************************************************************************
+// show artist and songtitle if present in metadata                                        *
+//******************************************************************************************
+void showstreamtitle()
+{
+  char*       p1 ;
+  char*       p2 ;
+
+  if ( strstr ( metaline, "StreamTitle=" ) )
   {
-    handlebyte ( getring() ) ;                    // Yes, handle it
+    p1 = metaline + 12 ;                    // Begin of artist and title
+    if ( p2 = strstr ( metaline, ";" ) )    // Search for end of title
+    {
+      if ( *p1 == '\'' )                    // Surrounded by quotes?
+      {
+        p1++ ;
+        p2-- ;
+      }
+      *p2 = '\0' ;                          // Strip the rest of the line
+    }
+    if ( *p1 == ' ' )                       // Leading space?
+    {
+      p1++ ;
+    }
+    // Save last part of string as streamtitle.  Protect against buffer overflow
+    strncpy ( streamtitle, p1, sizeof ( streamtitle ) ) ;
+    streamtitle[sizeof ( streamtitle ) - 1] = '\0' ;
   }
+  else
+  {
+    return ;                                // Metadata does not contain streamtitle
+  }
+  if ( p1 = strstr ( streamtitle, " - " ) ) // look for artist/title separator
+  {
+    *p1++ = '\n' ;                          // Found: replace 3 characters by newline
+    p2 = p1 + 2 ;
+    if ( *p2 == ' ' )                       // Leading space in title?
+    {
+      p2++ ;
+    }
+    strcpy ( p1, p2 ) ;                     // Shift 2nd part of title 2 or 3 places
+  }
+  dbgprint ( metaline ) ;
+  displayinfo ( streamtitle, 20, CYAN ) ;   // Show title at position 20
 }
 
 
@@ -914,8 +1003,8 @@ char* get_eeprom_station ( int index )
   for ( i = 0 ; i < EESIZ ; i++ )
   {
     entry[i] = EEPROM.read ( address++ ) ;
-    yield() ;
   }
+  yield() ;
   return entry ;                       // Geef pointer terug
 }
 
@@ -924,19 +1013,21 @@ char* get_eeprom_station ( int index )
 //                          P U T _ E E P R O M _ S T A T I O N                            *
 //******************************************************************************************
 // Put a station into EEPROM.  1st parameter index is 0..63.                               *
+// Note that 64 characters are copied.  The string "entry" may be shorter in reality, but  *
+// that is generally no problem......                                                      *
 //******************************************************************************************
 void put_eeprom_station ( int index, const char *entry )
 {
-  int         i ;                      // index in entry
-  int         address ;                // Address in EEPROM 
+  int         i ;                            // index in entry
+  int         address ;                      // Address in EEPROM
 
-  address = index * EESIZ ;            // Compute address in EEPROM
+  address = index * EESIZ ;                  // Compute address in EEPROM
   for ( i = 0 ; i < EESIZ ; i++ )
   {
-    EEPROM.write ( address++, entry[i] ) ;
+    EEPROM.write ( address++, entry[i] ) ; // Copy 1 character
   }
   yield() ;
-  EEPROM.commit() ;                    // Commit the write
+  EEPROM.commit() ;                          // Commit the write
 }
 
 
@@ -1069,6 +1160,64 @@ void connectwifi()
 
 
 //******************************************************************************************
+//                      S A V E V O L U M E A N D P R E S E T                              *
+//******************************************************************************************
+// Save current volume and preset in the first entry of the EEPROM.                        *
+// This info is kept in the last 2 bytes of the entry.                                     *                                                                  *
+//******************************************************************************************
+void saveVolumeAndPreset()
+{
+  char*  p ;                                         // Points into entry 0
+
+  savvolume = mp3.getVolume() ;                      // Current volume
+  savpreset = currentpreset ;                        // Current preset station
+  p = get_eeprom_station ( 0 ) ;                     // Point to entry 0
+  p[EESIZ-2] = savvolume ;                           // Save volume
+  p[EESIZ-1] = currentpreset ;                       // Save preset station
+  put_eeprom_station ( 0, p ) ;                      // Put in EEPROM
+  sprintf ( sbuf, "Settings saved: volume %d, preset %d",
+            savvolume, savpreset ) ;
+  dbgprint ( sbuf ) ;
+}
+
+
+//******************************************************************************************
+//                   R E S T O R E V O L U M E A N D P R E S E T                           *
+//******************************************************************************************
+// See if there is a saved volume and preset in the first entry of the EEPROM.             *
+// This info is kept in the last 2 bytes of the entry.                                     *                                                                  *
+//******************************************************************************************
+void restoreVolumeAndPreset()
+{
+  char*  p ;                                         // Points into entry 0
+
+  p = get_eeprom_station ( 0 ) ;                     // Point to entry 0
+  p = p + EESIZ - 2 ;                                // Point to volume byte
+  if ( *p > 60 && *p <= 100  )
+  {
+    reqvol = *p++ ;                                  // Restore saved volume
+    newpreset = *p ;                                 // Restore saved preset
+    savvolume = reqvol ;                             // Saved volume
+    savpreset = newpreset ;                          // Saved preset station
+    sprintf ( sbuf, "Restored settings: volume %d, preset %d",
+              reqvol, newpreset ) ;
+    dbgprint ( sbuf ) ;
+  }
+}
+
+
+//******************************************************************************************
+//                                   O T A S T A R T                                       *
+//******************************************************************************************
+// Update via WiFi has been started by Arduino IDE.                                        *
+//******************************************************************************************
+void otastart()
+{
+  dbgprint ( "OTA Started" ) ;
+}
+
+
+//******************************************************************************************
 //                                   S E T U P                                             *
 //******************************************************************************************
 // Setup for the program.                                                                  *
@@ -1102,7 +1251,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP V2.1...  Free memory %d",
+            "Starting ESP Version 03-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
@@ -1110,7 +1259,8 @@ void setup()
             ESP.getSketchSize(),
             ESP.getFreeSketchSpace() ) ;
   dbgprint ( sbuf ) ;
-  fill_eeprom() ;                                    // Fill if empty  
+  fill_eeprom() ;                                    // Fill if empty
+  restoreVolumeAndPreset() ;                         // Restore saved settings
   pinMode ( BUTTON, INPUT ) ;                        // Input for control button
   mp3.begin() ;                                      // Initialize VS1053 player
   tft.begin() ;                                      // Init TFT interface
@@ -1126,24 +1276,14 @@ void setup()
   tckr.attach ( 0.100, timer100 ) ;                  // Every 100 msec
   listNetworks() ;                                   // Search for strongest WiFi network
   connectwifi() ;                                    // Connect to WiFi network
-  #if defined ( dns )
-    dbgprint ( "Start MDNS responder" ) ;
-    if ( !mdns.begin ( "ESP-radio",
-                       WiFi.localIP() ) )            // Start DNS responder
-    {
-      dbgprint ( "Error setting up MDNS responder!" ) ;
-    }
-  #endif
   dbgprint ( "Start server for commands" ) ;
-  // Specify handling of the various commands (case sensitive). The startpage will be returned if
-  // no arguments are given.  The first argument has the format with "/?parameter=value".
-  // Example: "/?volume=90"
-  // Multiple commands are alowed, like "/?volume=95&station=+1"
   cmdserver.on ( "/", handleCmd ) ;                  // Handle startpage
   cmdserver.onNotFound ( handleFS ) ;                // Handle file from FS
   cmdserver.begin() ;
   delay ( 1000 ) ;                                   // Show IP for a wile
   connecttohost() ;                                  // Connect to the selected host
+  ArduinoOTA.setHostname ( "ESP-radio" ) ;           // Set the hostname
+  ArduinoOTA.onStart ( otastart ) ;
   ArduinoOTA.begin() ;                               // Allow update over the air
 }
 
@@ -1188,71 +1328,18 @@ void loop()
     emptyring() ;                                 // Empty the ringbuffer
     connecttohost() ;                             // Switch to new host
   }
+  if ( savreq )                                   // Request to save settings
+  {
+    savreq = false ;                              // Yes: reset request first
+    saveVolumeAndPreset() ;                       // Save the settings
+  }
   mp3.setVolume ( reqvol ) ;                      // Set to requested volume
+  if ( reqtone )                                  // Request to change tone?
+  {
+    reqtone = false ;
+    mp3.setTone ( rtone ) ;                       // Set SCI_BASS to requested value
+  }
   ArduinoOTA.handle() ;                           // Check for OTA
-}
-
-
-//******************************************************************************************
-//                              D I S P L A Y I N F O                                      *
-//******************************************************************************************
-// Show a string on the LCD at a specified y-position in a specified color                 *
-//******************************************************************************************
-void displayinfo ( const char *str, int pos, uint16_t color )
-{
-  tft.fillRect ( 0, pos, 160, 40, BLACK ) ;   // Clear the space for new info
-  tft.setTextColor ( color ) ;                // Set the requested color
-  tft.setCursor ( 0, pos ) ;                  // Prepare to show the info
-  tft.print ( str ) ;                         // Show the string
-}
-
-
-//******************************************************************************************
-//                        S H O W S T R E A M T I T L E                                    *
-//******************************************************************************************
-// show artist and songtitle if present in metadata                                        *
-//******************************************************************************************
-void showstreamtitle()
-{
-  char*       p1 ;
-  char*       p2 ;
-
-  if ( strstr ( metaline, "StreamTitle=" ) )
-  {
-    p1 = metaline + 12 ;                    // Begin of artist and title
-    if ( p2 = strstr ( metaline, ";" ) )    // Search for end of title
-    {
-      if ( *p1 == '\'' )                    // Surrounded by quotes?
-      {
-        p1++ ;
-        p2-- ;
-      }
-      *p2 = '\0' ;                          // Strip the rest of the line
-    }
-    if ( *p1 == ' ' )                       // Leading space?
-    {
-      p1++ ;
-    }
-    // Save last part of string as streamtitle.  Protect against buffer overflow
-    strncpy ( streamtitle, p1, sizeof ( streamtitle ) ) ;
-    streamtitle[sizeof ( streamtitle ) - 1] = '\0' ;
-  }
-  else
-  {
-    return ;                                // Metadata does not contain streamtitle
-  }
-  if ( p1 = strstr ( streamtitle, " - " ) ) // look for artist/title separator
-  {
-    *p1++ = '\n' ;                          // Found: replace 3 characters by newline
-    p2 = p1 + 2 ;
-    if ( *p2 == ' ' )                       // Leading space in title?
-    {
-      p2++ ;
-    }
-    strcpy ( p1, p2 ) ;                     // Shift 2nd part of title 2 or 3 places
-  }
-  dbgprint ( metaline ) ;
-  displayinfo ( streamtitle, 20, CYAN ) ;   // Show title at position 20
 }
 
 
@@ -1270,6 +1357,10 @@ void handlebyte ( uint8_t b )
   static int       LFcount ;                            // Detection of end of header
   static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
   static int       chunkcount = 0 ;                     // Data in chunk
+  static bool      firstchunk = true ;                  // First chunk as input
+  char*            p ;                                  // Pointer in metaline
+  int              i, j ;                               // Loop control
+
   
   switch ( datamode )
   {
@@ -1277,6 +1368,18 @@ void handlebyte ( uint8_t b )
       buf[chunkcount++] = b ;                          // Save byte in cunkbuffer
       if ( chunkcount == sizeof(buf) )                 // Buffer full?
       {
+        if ( firstchunk )
+        {
+          firstchunk = false ;
+          dbgprint ( "First chunk:" ) ;                // Header for printout of first chunk
+          for ( i = 0 ; i < 32 ; i += 8 )              // Print 4 lines
+          {
+            sprintf ( sbuf, "%02X %02X %02X %02X %02X %02X %02X %02X",
+                      buf[i],   buf[i+1], buf[i+2], buf[i+3],
+                      buf[i+4], buf[i+5], buf[i+6], buf[i+7] ) ;
+            dbgprint ( sbuf ) ;
+          }
+        }
         mp3.playChunk ( buf, chunkcount ) ;            // Yes, send to player
         chunkcount = 0 ;                               // Reset count
       }
@@ -1312,21 +1415,22 @@ void handlebyte ( uint8_t b )
         metaline[metaindex] = '\0' ;                   // Mark end of string
         metaindex = 0 ;                                // Reset for next line
         dbgprint ( metaline ) ;                        // Show it
-        if ( strstr ( metaline, "icy-br:" ) == metaline )
+        if ( p = strstr ( metaline, "icy-br:" ) )
         {
           // Found bitrate tag, read the bitrate
-          bitrate = atoi ( metaline + 7 ) ;
+          bitrate = atoi ( p + 7 ) ;
         }
-        else if ( strstr ( metaline, "icy-metaint:" ) == metaline )
+        else if ( p = strstr ( metaline, "icy-metaint:" ) )
         {
           // Found bitrate tag, read the bitrate
-          metaint = atoi ( metaline + 12 ) ;
+          metaint = atoi ( p + 12 ) ;
         }
-        else if ( strstr ( metaline, "icy-name:" ) == metaline )
+        else if ( p = strstr ( metaline, "icy-name:" ) )
         {
           // Found station name, save it, prevent overflow
-          strncpy ( sname, metaline + 9, sizeof ( sname ) ) ;
+          strncpy ( sname, p + 9, sizeof ( sname ) ) ;
           sname[sizeof(sname)-1] = '\0' ;
+          dbgprint ( "Name set" ) ;
           displayinfo ( sname, 60, YELLOW ) ;          // Show title at position 60
         }
         if ( bitrate && ( LFcount == 2 ) )
@@ -1417,12 +1521,21 @@ String getContentType ( String filename )
 //******************************************************************************************
 void handleFS ( AsyncWebServerRequest *request )
 {
-  String fnam ;
+  String fnam ;                                         // Requested file
+  String ct ;                                           // Content type
 
   fnam = request->url() ;
   sprintf ( sbuf, "onFileRequest received %s", fnam.c_str() ) ;
   dbgprint ( sbuf ) ;
-  request->send ( SPIFFS, fnam, getContentType ( fnam ) ) ;
+  ct = getContentType ( fnam ) ;                        // Get content type
+  if ( ct == "" )                                       // Empty is illegal
+  {
+    request->send ( 404, "text/plain", "File not found" ) ;  
+  }
+  else
+  {
+    request->send ( SPIFFS, fnam, ct ) ;                // Okay, send the file
+  }
 }
 
 
@@ -1431,6 +1544,7 @@ void handleFS ( AsyncWebServerRequest *request )
 //******************************************************************************************
 // Handling of the various commands from remote (case sensitive). All commands start with  *
 // "/command", followed by "?parameter=value".  Example: "/command?volume=50".             *
+// The startpage will be returned if no arguments are given.                               *
 // Examples with available parameters:                                                     *
 //   volume     = 95                        // Percentage between 0 and 100                *
 //   upvolume   = 2                         // Add percentage to current volume            *
@@ -1438,147 +1552,160 @@ void handleFS ( AsyncWebServerRequest *request )
 //   preset     = 5                         // Select preset 5 station for listening       *
 //   uppreset   = 1                         // Select next preset station for listening    *
 //   downpreset = 1                         // Select previous preset station              *
+//   tone       = 3,4,3,4                   // Setting bass and treble (see documentation) *
 //   station    = address:port              // Store new preset station and select it      *
 //   delete     = 0                         // Delete current playing station              *
 //   delete     = 5                         // Delete preset station number 5              *
 //   status     = 0                         // Show current station:port                   *
 //   test       = 0                         // For test purposes                           *
 //   debug      = 0 or 1                    // Switch debugging on or off                  *
-// Multiple parameters are allowed.  An extra command may be "version=<random number>" in  *
-// to prevent browsers like Edge and IE to use their cache.  This "version" is ignored.    *
-// Example: "/command?volume+=5&version=0.9775479450590543"                                *
+// Multiple parameters are ignored.  An extra parameter may be "version=<random number>"   *
+// in order to prevent browsers like Edge and IE to use their cache.  This "version" is    *
+// ignored.                                                                                *
+// Example: "/command?upvolume=5&version=0.9775479450590543"                               *
 //******************************************************************************************
 void handleCmd ( AsyncWebServerRequest *request )
 {
-  AsyncWebParameter* p ;                                // Points to parameter structure
-  String             argument ;                         // Next argument in command
-  String             value ;                            // Value of an argument
-  int                ivalue ;                           // Value of argument as an integer
-  static char        reply[80] ;                        // Reply to client
-  uint8_t            oldvol ;                           // Current volume
-  uint8_t            newvol ;                           // Requested volume
-  int                numargs ;                          // Number of arguments
-  int                i ;                                // Loop through the commands
-  bool               relative ;                         // Relative argument (+ or -)
-  uint32_t           t ;                                // For time test
+  AsyncWebParameter* p ;                              // Points to parameter structure
+  String             argument ;                       // Next argument in command
+  String             value ;                          // Value of an argument
+  int                ivalue ;                         // Value of argument as an integer
+  static char        reply[80] ;                      // Reply to client
+  uint8_t            oldvol ;                         // Current volume
+  uint8_t            newvol ;                         // Requested volume
+  int                numargs ;                        // Number of arguments
+  int                i ;                              // Loop through the commands
+  bool               relative ;                       // Relative argument (+ or -)
+  uint32_t           t ;                              // For time test
   
-  t = millis() ;                                        // Timestamp at start
-  numargs = request->params() ;                         // Get number of arguments
-  if ( numargs == 0 )                                   // Any arguments
+  t = millis() ;                                      // Timestamp at start
+  numargs = request->params() ;                       // Get number of arguments
+  if ( numargs == 0 )                                 // Any arguments
   {
-    request->send ( SPIFFS, "/index.html",              // No parameters, send the startpage
+    request->send ( SPIFFS, "/index.html",            // No parameters, send the startpage
                     "text/html" ) ;
     return ;
   }
-  strcpy ( reply, "Command(s) accepted" ) ;             // Default reply
-  for ( i = 0 ; i < numargs ; i++ )
+  strcpy ( reply, "Command(s) accepted" ) ;           // Default reply
+  p = request->getParam ( i ) ;                       // Get pointer to parameter structure
+  argument = p->name() ;                              // Get the argument
+  argument.toLowerCase() ;                            // Force to lower case
+  value = p->value() ;                                // Get the specified value
+  ivalue = abs ( value.toInt() ) ;                    // Also as an integer
+  relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
+  if ( argument.indexOf ( "down" ) == 0 )             // - relative setting?
   {
-    p = request->getParam ( i ) ;                       // Get pointer to parameter structure
-    argument = p->name() ;                              // Get the argument
-    argument.toLowerCase() ;                            // Force to lower case
-    value = p->value() ;                                // Get the specified value
-    ivalue = abs ( value.toInt() ) ;                    // Also as an integer
-    relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
-    if ( argument.indexOf ( "down" ) == 0 )             // - relative setting?
+    relative = true ;                                 // It's relative
+    ivalue = - ivalue ;                               // But with negative value
+  }
+  sprintf ( sbuf, "Command: %s with parameter %s converted to %d",
+            argument.c_str(), value.c_str(), ivalue ) ;
+  dbgprint ( sbuf ) ;
+  if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
+  {
+    // Volume may be of the form "volume+", "volume-" or "volume" for relative or absolute setting
+    oldvol = mp3.getVolume() ;                        // Get current volume
+    if ( relative )                                   // + relative setting?
     {
-      relative = true ;                                 // It's relative
-      ivalue = - ivalue ;                               // But with negative value
+      reqvol = oldvol + ivalue ;                      // Up by 0.5 or more dB
     }
-    sprintf ( sbuf, "Command: %s with parameter %s converted to %d",
-              argument.c_str(), value.c_str(), ivalue ) ;
-    dbgprint ( sbuf ) ;
-    if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
-    {
-      // Volume may be of the form "volume+", "volume-" or "volume" for relative or absolute setting
-      oldvol = mp3.getVolume() ;                        // Get current volume
-      if ( relative )                                   // + relative setting?
-      {
-        reqvol = oldvol + ivalue ;                      // Up by 0.5 or more dB
-      }
-      else
-      {
-        reqvol = ivalue ;                               // Absolue setting
-      }
-      if ( reqvol > 100 )
-      {
-        reqvol = 100 ;                                  // Limit to normal values
-      }
-      sprintf ( reply, "Volume is now %d", reqvol ) ;  // Reply new volume
-    }
-    else if ( argument.indexOf ( "preset" ) >= 0 )      // Preset station?
-    {
-      if ( relative )                                   // Relative argument?
-      {
-        newpreset += ivalue ;                           // Yes, adjust currentpreset
-      }
-      else
-      {
-        newpreset = ivalue ;                            // Otherwise set station
-      }
-      sprintf ( reply, "Next station requested = %d",   // Format reply
-                newpreset ) ;
-    }
-    else if ( argument.indexOf ( "station" ) == 0 )     // Station in the form address:port
-    {
-      strcpy ( newstation, value.c_str() ) ;            // Save it for storage and selection later 
-      newpreset++ ;                                     // Select this station as new preset
-      sprintf ( reply,
-                "New preset station %s accepted",       // Format reply
-                newstation ) ;
-    }
-    else if ( argument.indexOf ( "delete" ) == 0 )      // Station in the form address:port
-    {
-      if ( ivalue < 0 || ivalue >= EENUM )              // Check preset number
-      {
-        sprintf ( reply, "Bad preset number %d",        // Must be 0..63
-                  ivalue ) ;
-        break ;
-      }
-      if ( ivalue )                                     // 0 means current preset
-      {
-        delpreset = ivalue ;                            // Fill with a zero pattern later
-      }
-      else
-      {
-        delpreset = currentpreset ;                     // Fill with a zero pattern later
-      }
-    }
-    else if ( argument.indexOf ( "status" ) == 0 )      // Status request
-    {
-      sprintf ( reply, "Playing preset %d - %s",        // Format reply
-                currentpreset, currentstat ) ;
-    }
-    else if ( argument.indexOf ( "reset" ) == 0 )       // Reset request
-    {
-      ESP.restart() ;                                   // Reset all
-      // No continuation here......
-    }
-    else if ( argument.indexOf ( "test" ) == 0 )        // Test command
-    {
-      sprintf ( reply, "Free memory is %d,  ringbuf %d, stream %d",
-                system_get_free_heap_size(), rcount, mp3client.available() ) ;
-    }
-    else if ( argument.indexOf ( "version" ) == 0 )     // Random version number
-    {
-      // Simply ignore this argument.  Used to prevent cashing in browser
-    }
-    // To do: commands for bass/treble control
     else
     {
-      sprintf ( reply, "Esp-radio called with ilegal parameter: %s",
-                argument.c_str() ) ;
-      break ;                                           // Stop interpreting
+      reqvol = ivalue ;                               // Absolue setting
     }
-  }                                                     // End of arguments loop
-  request->send ( 200, "text/plain", reply ) ;          // Send the reply
+    if ( reqvol > 100 )
+    {
+      reqvol = 100 ;                                  // Limit to normal values
+    }
+    sprintf ( reply, "Volume is now %d", reqvol ) ;   // Reply new volume
+  }
+  else if ( argument.indexOf ( "preset" ) >= 0 )      // Preset station?
+  {
+    if ( relative )                                   // Relative argument?
+    {
+      newpreset += ivalue ;                           // Yes, adjust currentpreset
+    }
+    else
+    {
+      newpreset = ivalue ;                            // Otherwise set station
+    }
+    sprintf ( reply, "Next station requested = %d",   // Format reply
+              newpreset ) ;
+  }
+  else if ( argument.indexOf ( "station" ) == 0 )     // Station in the form address:port
+  {
+    strcpy ( newstation, value.c_str() ) ;            // Save it for storage and selection later 
+    newpreset++ ;                                     // Select this station as new preset
+    sprintf ( reply,
+              "New preset station %s accepted",       // Format reply
+              newstation ) ;
+  }
+  else if ( argument.indexOf ( "delete" ) == 0 )      // Station in the form address:port
+  {
+    if ( ivalue < 0 || ivalue >= EENUM )              // Check preset number
+    {
+      sprintf ( reply, "Bad preset number %d",        // Must be 0..63
+                ivalue ) ;
+    }
+    if ( ivalue )                                     // 0 means current preset
+    {
+      delpreset = ivalue ;                            // Fill with a zero pattern later
+    }
+    else
+    {
+      delpreset = currentpreset ;                     // Fill with a zero pattern later
+    }
+  }
+  else if ( argument.indexOf ( "status" ) == 0 )      // Status request
+  {
+    sprintf ( reply, "Playing preset %d - %s",        // Format reply
+              currentpreset, currentstat ) ;
+  }
+  else if ( argument.indexOf ( "reset" ) == 0 )       // Reset request
+  {
+    ESP.restart() ;                                   // Reset all
+    // No continuation here......
+  }
+  else if ( argument.indexOf ( "test" ) == 0 )        // Test command
+  {
+    sprintf ( reply, "Free memory is %d, ringbuf %d, stream %d",
+              system_get_free_heap_size(), rcount, mp3client.available() ) ;
+  }
+  // Commands for bass/treble control
+  else if ( argument.indexOf ( "tone" ) == 0 )        // Tone command
+  {
+    if ( argument.indexOf ( "ha" ) > 0 )              // High amplitue? (for treble)
+    {
+      rtone[0] = ivalue ;                             // Yes, prepare to set ST_AMPLITUDE
+    }
+    if ( argument.indexOf ( "hf" ) > 0 )              // High frequency? (for treble)
+    {
+      rtone[1] = ivalue ;                             // Yes, prepare to set ST_FREQLIMIT
+    }
+    if ( argument.indexOf ( "la" ) > 0 )              // Low amplitue? (for bass)
+    {
+      rtone[2] = ivalue ;                             // Yes, prepare to set SB_AMPLITUDE
+    }
+    if ( argument.indexOf ( "lf" ) > 0 )              // High frequency? (for bass)
+    {
+      rtone[3] = ivalue ;                             // Yes, prepare to set SB_FREQLIMIT
+    }
+    reqtone = true ;                                  // Set change request
+    sprintf ( reply, "Parameter for bass/treble %s set to %d",
+              argument.c_str(), ivalue ) ;
+  }
+  else
+  {
+    sprintf ( reply, "ESP-radio called with ilegal parameter: %s",
+              argument.c_str() ) ;
+  }
+  request->send ( 200, "text/plain", reply ) ;        // Send the reply
   t = millis() - t ;
-  sprintf ( sbuf, "Reply sent within %d msec", t ) ;
-  dbgprint ( sbuf ) ;
   // If it takes too long to send a reply, we run into the "LmacRxBlk:1"-problem.
   // Reset the ESP8266..... 
   if ( t > 8000 )
   {
-    ESP.restart() ;                                    // Last resource
+    ESP.restart() ;                                   // Last resource
   }
 }
 
