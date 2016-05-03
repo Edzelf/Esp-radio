@@ -13,5 +13,8 @@ Features:
 -	Debug information through serial output.
 -	Big ring buffer to provide smooth playback.
 -	SPIFFS filesystem used for website, WiFi SSIDs and passwords.
+-	Software update over WiFi possible (OTA).
+-	Saves volume and preset station over restart.
+-	Bass and treble control.
 
 See documentation in pdf-file.
