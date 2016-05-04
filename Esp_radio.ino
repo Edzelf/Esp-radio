@@ -85,6 +85,7 @@
 // 21-04-2016, ES: Switch to Async Webserver
 // 27-04-2016, ES: Save settings, so same volume and preset will be used after restart
 // 03-05-2016, ES: Add bass/treble settings (see also new index.html)
+// 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3"
 //
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -900,7 +901,7 @@ void connecttohost()
   int      i ;                                      // Index free EEPROM entry
   char*    eepromentry ;                            // Pointer to copy of EEPROM entry 
   char*    p ;                                      // Pointer in hostname
-
+  char*    extension = "/" ;                        // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
   
   dbgprint ( "Connect to new host" ) ;
   if ( mp3client.connected() )
@@ -943,11 +944,20 @@ void connecttohost()
   }
   currentpreset = newpreset ;                       // This is the new preset
   strcpy ( host, eepromentry ) ;                    // Select first station number
+  sprintf ( sbuf, "EEprom entry is %s", host ) ;    // The selected entry
+  dbgprint ( sbuf ) ;
   p = strstr ( host, ":" ) ;                        // Search for separator
   *p++ = '\0' ;                                     // Remove port from string and point to port
   port = atoi ( p ) ;                               // Get portnumber as integer
-  sprintf ( sbuf, "Connect to preset %d, host %s on port %d",
-            currentpreset, host, port ) ;
+  // After the portnumber there may be an extension
+  p = strstr ( p, "/" ) ;                           // Search for begin of extension
+  if ( p )                                          // Is there an extension?
+  {
+    extension = p ;                                 // Yes, change the default
+    dbgprint ( "Slash in station" ) ;
+  }
+  sprintf ( sbuf, "Connect to preset %d, host %s on port %d, extension %s",
+            currentpreset, host, port, extension ) ;
   dbgprint ( sbuf ) ;
   displayinfo ( sbuf, 60, YELLOW ) ;                // Show info at position 60
   delay ( 2000 ) ;                                  // Show for some time
@@ -956,7 +966,9 @@ void connecttohost()
   {
     dbgprint ( "Connected to server" ) ;
     // This will send the request to the server. Request metadata.
-    mp3client.print ( String ( "GET / HTTP/1.1\r\n" ) +
+    mp3client.print ( String ( "GET " ) +
+                      String ( extension ) +  
+                      " HTTP/1.1\r\n" +
                       "Host: " + host + "\r\n" +
                       "Icy-MetaData:1\r\n" +
                       "Connection: close\r\n\r\n");
@@ -1251,7 +1263,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP Version 03-05-2016...  Free memory %d",
+            "Starting ESP Version 04-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
