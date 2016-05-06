@@ -77,15 +77,16 @@
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
 // 05-04-2016, ES: Added commands through http server on port 80.
-// 06-04-2016, ES: Added list of stations in EEPROM
+// 06-04-2016, ES: Added list of stations in EEPROM.
 // 14-04-2016, ES: Added icon and switch preset on stream error.
-// 18-04-2016, ES: Added SPIFFS for webserver
-// 19-04-2016, ES: Added ringbuffer
-// 20-04-2016, ES: WiFi Passwords through SPIFFS files, enable OTA
-// 21-04-2016, ES: Switch to Async Webserver
-// 27-04-2016, ES: Save settings, so same volume and preset will be used after restart
-// 03-05-2016, ES: Add bass/treble settings (see also new index.html)
-// 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3"
+// 18-04-2016, ES: Added SPIFFS for webserver.
+// 19-04-2016, ES: Added ringbuffer.
+// 20-04-2016, ES: WiFi Passwords through SPIFFS files, enable OTA.
+// 21-04-2016, ES: Switch to Async Webserver.
+// 27-04-2016, ES: Save settings, so same volume and preset will be used after restart.
+// 03-05-2016, ES: Add bass/treble settings (see also new index.html).
+// 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3".
+// 06-05-2016, ES: Allow hiddens WiFi station if this is the only .pw file.
 //
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -185,7 +186,7 @@ const char*      hostlist[] = {
                      "us1.internet-radio.com:8105",   //  6 - Classic Rock Florida - SHE Radio
                      "205.164.36.153:80",             //  7 - BOM PSYTRANCE (1.FM TM)  64-kbps
                      "205.164.62.15:10032",           //  8 - 1.FM - GAIA, 64-kbps
-                     "109.206.96.11:80",              //  9 - TOP FM Beograd 106,8  64-kpbs
+                     "skonto.ls.lv:8002/mp3",         //  9 - Skonto 128-kpbs
                      "85.17.121.216:8468",            // 10 - RADIO LEHOVO 971 GREECE, 64-kbps
                      "85.17.121.103:8800",            // 11 - STAR FM 88.8 Corfu Greece, 64-kbps
                      "85.17.122.39:8530",             // 12 - stylfm.gr laiko, 64-kbps
@@ -734,8 +735,6 @@ void listNetworks()
     dbgprint ( sbuf ) ;
   }
   dbgprint ( "--------------------------------------" ) ;
-  sprintf ( sbuf, "Selected network: %-25s", ssid.c_str() ) ;
-  dbgprint ( sbuf ) ;
 }
 
 
@@ -1158,11 +1157,10 @@ void connectwifi()
   WiFi.begin ( ssid.c_str(), pw.c_str() ) ;            // Connect to selected SSID
   sprintf ( sbuf, "Try WiFi %s",
             ssid.c_str() ) ;                           // Message to show during WiFi connect
-  while ( WiFi.status() != WL_CONNECTED )
+  if (  WiFi.waitForConnectResult() != WL_CONNECTED )  // Try to connect
   {
-    dbgprint ( sbuf ) ;                                // Show activity
-    tft.println ( sbuf ) ;
-    delay ( 2000 ) ;
+    dbgprint ( "WiFi Failed!" ) ;
+    return;
   }
   sprintf ( sbuf, "IP = %d.%d.%d.%d",
                   WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
@@ -1236,9 +1234,13 @@ void otastart()
 //******************************************************************************************
 void setup()
 {
-  FSInfo      fs_info ;
-  byte        mac[6] ;
-  int         i ;
+  FSInfo      fs_info ;                              // Info about SPIFFS
+  Dir         dir ;                                  // Directory struct for SPIFFS
+  File        f ;                                    // Filehandle
+  String      filename ;                             // Name of file found in SPIFFS
+  String      potSSID ;                              // Potential SSID if only 1 one password file
+  int         i ;                                    // Loop control
+  int         numpwf = 0 ;                           // Number of password files 
 
   Serial.begin ( 115200 ) ;                          // For debug
   Serial.println() ;
@@ -1249,21 +1251,27 @@ void setup()
   SPIFFS.info ( fs_info ) ;
   sprintf ( sbuf, "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
   dbgprint ( sbuf ) ;
-  Dir dir = SPIFFS.openDir("/") ;                    // Show files in FS
+  dir = SPIFFS.openDir("/") ;                        // Show files in FS
   while ( dir.next() )                               // All files
   {
-    File f = dir.openFile ( "r" ) ;
-    String filename = dir.fileName() ;
+    f = dir.openFile ( "r" ) ;
+    filename = dir.fileName() ;
     sprintf ( sbuf, "%-32s - %6d",                   // Show name and size
               filename.c_str(), f.size() ) ;
     dbgprint ( sbuf ) ;
+    if ( filename.endsWith ( ".pw" ) )               // If this a password file?
+    {
+      numpwf++ ;                                     // Yes, count number password files
+      potSSID = filename.substring ( 1 ) ;           // Save filename (without starting "/") of potential SSID 
+      potSSID.replace ( ".pw", "" ) ;                // Convert into SSID 
+    }
   }
   WiFi.mode ( WIFI_STA ) ;                           // This ESP is a station
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP Version 04-05-2016...  Free memory %d",
+            "Starting ESP Version 06-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
@@ -1287,6 +1295,13 @@ void setup()
   newstation[0] = '\0' ;                             // No new station yet
   tckr.attach ( 0.100, timer100 ) ;                  // Every 100 msec
   listNetworks() ;                                   // Search for strongest WiFi network
+  if ( numpwf == 1 )                                 // If there's only one pw-file...
+  {
+    dbgprint ( "Single (hidden) SSID found" ) ;
+    ssid = potSSID ;                                 // Use this SSID (it may be hidden)
+  }
+  sprintf ( sbuf, "Selected network: %-25s", ssid.c_str() ) ;
+  dbgprint ( sbuf ) ;
   connectwifi() ;                                    // Connect to WiFi network
   dbgprint ( "Start server for commands" ) ;
   cmdserver.on ( "/", handleCmd ) ;                  // Handle startpage

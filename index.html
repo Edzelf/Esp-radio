@@ -85,7 +85,15 @@
       </select> 
       <br>
       <br>
+      <input size="50" id="station" value="Enter new preset station here....">
+      <button onclick="setstat()">ADD</button>
+      <br>
+      <br>
       <input size="50" id="resultstr" value="Waiting for a command...."><br>
+      <br>
+      Find new radio station at <a href="http://www.internet-radio.com">http://www.internet-radio.com</a>
+      <br>
+      Examples: us1.internet-radio.com:8105, skonto.ls.lv:8002/mp3, 85.17.121.103:8800
     </div>
     <script>
       function httpGet ( theReq )
@@ -116,6 +124,21 @@
         xhr.open ( "GET", theUrl, false ) ;
         xhr.send() ;
       }
+
+      function setstat()
+      {
+        var theUrl = "/?station=" + station.value + "&version=" + Math.random() ;
+        var xhr = new XMLHttpRequest() ;
+        xhr.onreadystatechange = function() {
+          if ( xhr.readyState == XMLHttpRequest.DONE )
+          {
+            resultstr.value = xhr.responseText ;
+          }
+        }
+        xhr.open ( "GET", theUrl, false ) ;
+        xhr.send() ;
+      }
+
     </script>
   </body>
 </html>
