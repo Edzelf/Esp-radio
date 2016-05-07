@@ -20,6 +20,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+07-may-2016: Added selection of preset stations to sketch and web page.
 06-may-2016: Added hidden SSID, added feature to web page.
 04-may-2016, Allow stations like "skonto.ls.lv:8002/mp3".
 03-may-2016, Add bass/treble settings (see also new index.html).
