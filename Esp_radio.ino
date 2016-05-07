@@ -87,6 +87,7 @@
 // 03-05-2016, ES: Add bass/treble settings (see also new index.html).
 // 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3".
 // 06-05-2016, ES: Allow hiddens WiFi station if this is the only .pw file.
+// 07-05-2016, ES: Added preset selection in webserver
 //
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -897,10 +898,10 @@ void showstreamtitle()
 //******************************************************************************************
 void connecttohost()
 {
-  int      i ;                                      // Index free EEPROM entry
-  char*    eepromentry ;                            // Pointer to copy of EEPROM entry 
-  char*    p ;                                      // Pointer in hostname
-  char*    extension = "/" ;                        // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
+  int         i ;                                   // Index free EEPROM entry
+  char*       eepromentry ;                         // Pointer to copy of EEPROM entry 
+  char*       p ;                                   // Pointer in hostname
+  const char* extension = "/" ;                     // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
   
   dbgprint ( "Connect to new host" ) ;
   if ( mp3client.connected() )
@@ -1015,7 +1016,6 @@ char* get_eeprom_station ( int index )
   {
     entry[i] = EEPROM.read ( address++ ) ;
   }
-  yield() ;
   return entry ;                       // Geef pointer terug
 }
 
@@ -1271,7 +1271,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP Version 06-05-2016...  Free memory %d",
+            "Starting ESP Version 07-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
@@ -1567,6 +1567,30 @@ void handleFS ( AsyncWebServerRequest *request )
 
 
 //******************************************************************************************
+//                             G E T P R E S E T S                                         *
+//******************************************************************************************
+// Make a list of all preset stations and return this to the client.                       *
+//******************************************************************************************
+void getpresets ( AsyncWebServerRequest *request )
+{
+  int                 i ;                          // Loop control
+  char                *p ;                         // Pointer to EEprom entry
+  AsyncResponseStream *response ;                  // Response to client
+  
+  response = request->beginResponseStream ( "text/plain" ) ;
+  for ( i = 1 ; i < EENUM ; i++ )                  // List all for entries
+  {
+    p = get_eeprom_station ( i ) ;                 // Get next entry
+    if ( *p )                                      // Check if filled with a station
+    { 
+      response->printf ( "%02d%s|", i, p ) ;      // 2 digits plus name   
+    }
+  }
+  request->send ( response ) ;
+}
+
+
+//******************************************************************************************
 //                             H A N D L E C M D                                           *
 //******************************************************************************************
 // Handling of the various commands from remote (case sensitive). All commands start with  *
@@ -1586,6 +1610,7 @@ void handleFS ( AsyncWebServerRequest *request )
 //   status     = 0                         // Show current station:port                   *
 //   test       = 0                         // For test purposes                           *
 //   debug      = 0 or 1                    // Switch debugging on or off                  *
+//   list       = 0                         // Returns list of presets                     *
 // Multiple parameters are ignored.  An extra parameter may be "version=<random number>"   *
 // in order to prevent browsers like Edge and IE to use their cache.  This "version" is    *
 // ignored.                                                                                *
@@ -1720,6 +1745,11 @@ void handleCmd ( AsyncWebServerRequest *request )
     reqtone = true ;                                  // Set change request
     sprintf ( reply, "Parameter for bass/treble %s set to %d",
               argument.c_str(), ivalue ) ;
+  }
+  else if ( argument.indexOf ( "list" ) == 0 )        // list request
+  {
+    getpresets ( request ) ;                          // Yes, get the list and send it as reply
+    return ; 
   }
   else
   {
