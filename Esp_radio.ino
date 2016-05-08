@@ -153,8 +153,10 @@ extern "C"
 #define BUTTON2 0
 #define BUTTON3 15
 // Maximal number of presets in EEPROM and size of an entry
-#define EENUM 64
-#define EESIZ 64
+#define EEPROM_SIZE 4096         // Size of EEPROM to use for saving preset stations
+#define EESIZ 128                // Maximal number of presets in EEPROM
+#define EENUM EEPROM_SIZE/EESIZ  // Size of one preset entry in EEPROM
+
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
 #define RINGBFSIZ 20000
 
@@ -1187,7 +1189,7 @@ void put_empty_eeprom_station ( int index )
   int         address ;                // Address in EEPROM 
 
   address = index * EESIZ ;            // Compute address in EEPROM
-  for ( i = 0 ; i < EENUM ; i++ )
+  for ( i = 0 ; i < EESIZ ; i++ )
   {
     EEPROM.write ( address++, 0 ) ;
   }
@@ -1234,7 +1236,7 @@ void fill_eeprom()
   dbgprint ( "EEPROM is empty.  Will be filled now." ) ;
   delay ( 300 ) ;
   j = 0 ;                                            // Point to first line in hostlist
-  for ( i = 0 ; i < EESIZ ; i++ )                    // Space for all entries
+  for ( i = 0 ; i < EENUM ; i++ )                    // Space for all entries
   {
     if ( hostlist[j] )                               // At last host in the list?
     { 
@@ -1381,7 +1383,7 @@ void setup()
   WiFi.mode ( WIFI_STA ) ;                           // This ESP is a station
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
   SPI.begin() ;                                      // Init SPI bus
-  EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
+  EEPROM.begin ( EEPROM_SIZE ) ;                     // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
             "Starting ESP Version 17-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
