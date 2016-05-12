@@ -88,6 +88,7 @@
 // 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3".
 // 06-05-2016, ES: Allow hiddens WiFi station if this is the only .pw file.
 // 07-05-2016, ES: Added preset selection in webserver
+// 12-05-2016, ES: Added support for Ogg-encoder
 //
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -240,34 +241,34 @@ protected:
   {
     while ( !digitalRead ( dreq_pin ) )
     {
-        yield() ;                         // Very short delay
+        yield() ;                               // Very short delay
     }
   }
   
   inline void control_mode_on() const
   {
-    SPI.beginTransaction ( VS1053_SPI ) ; // Prevent other SPI users
-    digitalWrite ( dcs_pin, HIGH ) ;      // Bring slave in control mode
+    SPI.beginTransaction ( VS1053_SPI ) ;       // Prevent other SPI users
+    digitalWrite ( dcs_pin, HIGH ) ;            // Bring slave in control mode
     digitalWrite ( cs_pin, LOW ) ;
   }
 
   inline void control_mode_off() const
   {
-    digitalWrite ( cs_pin, HIGH ) ;       // End control mode
-    SPI.endTransaction() ;                // Allow other SPI users
+    digitalWrite ( cs_pin, HIGH ) ;             // End control mode
+    SPI.endTransaction() ;                      // Allow other SPI users
   }
 
   inline void data_mode_on() const
   {
-    SPI.beginTransaction ( VS1053_SPI ) ; // Prevent other SPI users
-    digitalWrite ( cs_pin, HIGH ) ;       // Bring slave in data mode
+    SPI.beginTransaction ( VS1053_SPI ) ;       // Prevent other SPI users
+    digitalWrite ( cs_pin, HIGH ) ;             // Bring slave in data mode
     digitalWrite ( dcs_pin, LOW ) ;
   }
 
   inline void data_mode_off() const
   {
-    digitalWrite ( dcs_pin, HIGH ) ;      // End data mode
-    SPI.endTransaction() ;                // Allow other SPI users
+    digitalWrite ( dcs_pin, HIGH ) ;            // End data mode
+    SPI.endTransaction() ;                      // Allow other SPI users
   }
   
   uint16_t read_register ( uint8_t _reg ) const ;
@@ -317,12 +318,12 @@ uint16_t VS1053::read_register ( uint8_t _reg ) const
   uint16_t result ;
   
   control_mode_on() ;
-  SPI.write ( 3 ) ;                          // Read operation
-  SPI.write ( _reg ) ;                       // Register to write (0..0xF)
+  SPI.write ( 3 ) ;                                // Read operation
+  SPI.write ( _reg ) ;                             // Register to write (0..0xF)
   // Note: transfer16 does not seem to work
-  result = ( SPI.transfer ( 0xFF ) << 8 ) |  // Read 16 bits data
+  result = ( SPI.transfer ( 0xFF ) << 8 ) |        // Read 16 bits data
            ( SPI.transfer ( 0xFF ) ) ;
-  await_data_request() ;                     // Wait for DREQ to be HIGH again
+  await_data_request() ;                           // Wait for DREQ to be HIGH again
   control_mode_off() ;
   return result ;
 }
@@ -330,21 +331,21 @@ uint16_t VS1053::read_register ( uint8_t _reg ) const
 void VS1053::write_register ( uint8_t _reg, uint16_t _value ) const
 {
   control_mode_on( );
-  SPI.write ( 2 ) ;                          // Write operation
-  SPI.write ( _reg ) ;                       // Register to write (0..0xF)
-  SPI.write16 ( _value ) ;                   // Send 16 bits data  
+  SPI.write ( 2 ) ;                                // Write operation
+  SPI.write ( _reg ) ;                             // Register to write (0..0xF)
+  SPI.write16 ( _value ) ;                         // Send 16 bits data  
   await_data_request() ;
   control_mode_off() ;
 }
 
 void VS1053::sdi_send_buffer ( uint8_t* data, size_t len )
 {
-  size_t chunk_length ;                      // Length of chunk 32 byte or shorter
+  size_t chunk_length ;                            // Length of chunk 32 byte or shorter
   
   data_mode_on() ;
-  while ( len )                              // More to do?
+  while ( len )                                    // More to do?
   {
-    await_data_request() ;                   // Wait for space available
+    await_data_request() ;                         // Wait for space available
     chunk_length = len ;
     if ( len > vs1053_chunk_size )
     {
@@ -359,12 +360,12 @@ void VS1053::sdi_send_buffer ( uint8_t* data, size_t len )
 
 void VS1053::sdi_send_fillers ( size_t len )
 {
-  size_t chunk_length ;                      // Length of chunk 32 byte or shorter
+  size_t chunk_length ;                            // Length of chunk 32 byte or shorter
   
   data_mode_on() ;
-  while ( len )                              // More to do?
+  while ( len )                                    // More to do?
   {
-    await_data_request() ;                   // Wait for space available
+    await_data_request() ;                         // Wait for space available
     chunk_length = len ;
     if ( len > vs1053_chunk_size )
     {
@@ -458,8 +459,8 @@ void VS1053::begin()
   testComm ( "Slow SPI,Testing VS1053 read/write registers..." ) ;
   // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
   // when playing MP3.  You can modify the board, but there is a more elegant way:
-  wram_write ( 0xC017, 3 ) ;                            // Switch to MP3 mode
-  wram_write ( 0xC019, 0 ) ;                            // Switch to MP3 mode
+  wram_write ( 0xC017, 3 ) ;                            // GPIO DDR = 3
+  wram_write ( 0xC019, 0 ) ;                            // GPIO ODATA = 0
   delay ( 100 ) ;
   //printDetails ( "After test loop" ) ;
   softReset() ;                                         // Do a soft reset
@@ -1380,6 +1381,7 @@ void loop()
 void handlebyte ( uint8_t b )
 {
   static int       metaindex ;                          // Index in metaline
+  static bool      oggflag = false ;                    // Handling Ogg stream
   static bool      firstmetabyte ;                      // True if first metabyte (counter) 
   static int       LFcount ;                            // Detection of end of header
   static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
@@ -1411,15 +1413,18 @@ void handlebyte ( uint8_t b )
         chunkcount = 0 ;                               // Reset count
       }
       totalcount++ ;                                   // Count number of bytes, ignore overflow
-      if ( --datacount == 0 )                          // End of datablock?
+      if ( ! oggflag )                                 // No METADATA on ogg stream
       {
-        if ( chunkcount )                              // Yes, stil data in buffer?
+        if ( --datacount == 0 )                        // End of datablock?
         {
-          mp3.playChunk ( buf, chunkcount ) ;          // Yes, send to player
-          chunkcount = 0 ;                             // Reset count
+          if ( chunkcount )                            // Yes, still data in buffer?
+          {
+            mp3.playChunk ( buf, chunkcount ) ;        // Yes, send to player
+            chunkcount = 0 ;                           // Reset count
+          }
+          datamode = METADATA ;
+          firstmetabyte = true ;                       // Expecting first metabyte (counter)
         }
-        datamode = METADATA ;
-        firstmetabyte = true ;                         // Expecting first metabyte (counter)
       }
       break ;
     case INIT :                                        // Initialize for header receive
@@ -1458,14 +1463,22 @@ void handlebyte ( uint8_t b )
           strncpy ( sname, p + 9, sizeof ( sname ) ) ;
           sname[sizeof(sname)-1] = '\0' ;
           dbgprint ( "Name set" ) ;
-          displayinfo ( sname, 60, YELLOW ) ;          // Show title at position 60
+          displayinfo ( sname, 60, YELLOW ) ;            // Show title at position 60
         }
-        if ( bitrate && ( LFcount == 2 ) )
+        if ( LFcount == 2 )
         {
-          datamode = DATA ;                            // Expecting data
-          datacount = metaint ;                        // Number of bytes before first metadata
-          chunkcount = 0 ;                             // Reset chunkcount
-          mp3.startSong() ;                            // Start a new song
+          datamode = DATA ;                              // Expecting data now
+          if ( bitrate )                                 // MP3 must have bitrate set
+          {
+            datacount = metaint ;                        // Number of bytes before first metadata
+            chunkcount = 0 ;                             // Reset chunkcount
+            mp3.startSong() ;                            // Start a new song
+          }
+          else
+          {
+            oggflag = true ;                            // No bitrate, must be Ogg
+            displayinfo ( "Ogg-encoder", 60, YELLOW ) ; // Show title at position 60
+          }
         }
       }
       else
