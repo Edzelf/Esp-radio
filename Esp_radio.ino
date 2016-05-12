@@ -1413,7 +1413,7 @@ void handlebyte ( uint8_t b )
         chunkcount = 0 ;                               // Reset count
       }
       totalcount++ ;                                   // Count number of bytes, ignore overflow
-      if ( ! oggflag )                                 // No METADATA on ogg stream
+      if ( oggflag )                                   // No METADATA on ogg stream
       {
         if ( --datacount == 0 )                        // End of datablock?
         {
