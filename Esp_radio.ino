@@ -1272,7 +1272,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP Version 07-05-2016...  Free memory %d",
+            "Starting ESP Version 12-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
@@ -1465,10 +1465,10 @@ void handlebyte ( uint8_t b )
           dbgprint ( "Name set" ) ;
           displayinfo ( sname, 60, YELLOW ) ;            // Show title at position 60
         }
-        if ( LFcount == 2 )
+        if ( ( LFcount == 2 ) & ( bitrate != 0 ) )
         {
           datamode = DATA ;                              // Expecting data now
-          if ( bitrate )                                 // MP3 must have bitrate set
+          if ( bitrate > 0 )                             // MP3 must have bitrate set
           {
             datacount = metaint ;                        // Number of bytes before first metadata
             chunkcount = 0 ;                             // Reset chunkcount
@@ -1476,7 +1476,7 @@ void handlebyte ( uint8_t b )
           }
           else
           {
-            oggflag = true ;                            // No bitrate, must be Ogg
+            oggflag = true ;                            // Negative bitrate, must be Ogg
             displayinfo ( "Ogg-encoder", 60, YELLOW ) ; // Show title at position 60
           }
         }
