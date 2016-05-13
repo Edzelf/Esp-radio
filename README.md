@@ -2,7 +2,7 @@
 Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.
 
 Features:
--	Can connect to thousands of Internet radio stations that broadcast MP3 audio streams.
+-	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
 -	Uses a minimal number of components; no Arduino required.
 -	Handles bitrates up to 320 kbps.
 -	Has a preset list of maximal 63 favorite radio stations in EEPROM.
@@ -11,7 +11,7 @@ Features:
 -	The strongest available WiFi network is automatically selected.
 -	Heavily commented source code, easy to add extra functionality.
 -	Debug information through serial output.
--	Big ring buffer to provide smooth playback.
+-	20 kB ring buffer to provide smooth playback.
 -	SPIFFS filesystem used for website, WiFi SSIDs and passwords.
 -	Software update over WiFi possible (OTA).
 -	Saves volume and preset station over restart.
@@ -20,6 +20,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 13-may-2016: Better detection of Ogg streams.
 - 07-may-2016: Added selection of preset stations to sketch and web page.
 - 06-may-2016: Added hidden SSID, added feature to web page.
 - 04-may-2016, Allow stations like "skonto.ls.lv:8002/mp3".
