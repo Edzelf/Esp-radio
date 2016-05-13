@@ -30,11 +30,11 @@
 //  content-type:audio/mpeg
 //  icy-pub:1
 //  icy-metaint:32768          - Metadata after 32768 bytes of MP3-data
-//  icy-br:128                 - in kb/sec 
+//  icy-br:128                 - in kb/sec (for Ogg this is like "icy-br=Quality 2"
 //
-// After de double CRLF is received, the server starts sending mp3-data.  This data contains
-// metadata (non mp3) after every "metaint" mp3 bytes.  This metadata is empty in most cases,
-// but if any is available the content will be presented on the TFT.
+// After de double CRLF is received, the server starts sending mp3- or Ogg-data.  For mp3, this
+// data may contain metadata (non mp3) after every "metaint" mp3 bytes.
+// The metadata is empty in most cases, but if any is available the content will be presented on the TFT.
 // Pushing the input button causes the player to select the next station in the hostlist (EEPROM).
 //
 // The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
@@ -89,6 +89,7 @@
 // 06-05-2016, ES: Allow hiddens WiFi station if this is the only .pw file.
 // 07-05-2016, ES: Added preset selection in webserver
 // 12-05-2016, ES: Added support for Ogg-encoder
+// 13-05-2016, ES: Better Ogg detection
 //
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -151,9 +152,9 @@ char             sbuf[100] ;                               // For debug lines
 datamode_t       datamode ;                                // State of datastream
 int              metacount ;                               // Number of bytes in metadata
 int              datacount ;                               // Counter databytes before metadata
-char             metaline[150] ;                           // Readable line in metadata
+char             metaline[200] ;                           // Readable line in metadata
 char             streamtitle[150] ;                        // Streamtitle from metadata
-int              bitrate = 0 ;                             // Bitrate in kb/sec            
+int              bitrate ;                                 // Bitrate in kb/sec            
 int              metaint = 0 ;                             // Number of databytes between metadata
 int              currentpreset = 1 ;                       // Preset station to play (index in hostlist (EEPROM))
 int              newpreset = 1 ;                           // Requested preset
@@ -848,15 +849,15 @@ void displayinfo ( const char *str, int pos, uint16_t color )
 //******************************************************************************************
 // show artist and songtitle if present in metadata                                        *
 //******************************************************************************************
-void showstreamtitle()
+void showstreamtitle ( char *ml )
 {
   char*       p1 ;
   char*       p2 ;
 
-  if ( strstr ( metaline, "StreamTitle=" ) )
+  if ( strstr ( ml, "StreamTitle=" ) )
   {
     p1 = metaline + 12 ;                    // Begin of artist and title
-    if ( p2 = strstr ( metaline, ";" ) )    // Search for end of title
+    if ( p2 = strstr ( ml, ";" ) )          // Search for end of title
     {
       if ( *p1 == '\'' )                    // Surrounded by quotes?
       {
@@ -887,7 +888,7 @@ void showstreamtitle()
     }
     strcpy ( p1, p2 ) ;                     // Shift 2nd part of title 2 or 3 places
   }
-  dbgprint ( metaline ) ;
+  dbgprint ( ml ) ;
   displayinfo ( streamtitle, 20, CYAN ) ;   // Show title at position 20
 }
 
@@ -1381,7 +1382,6 @@ void loop()
 void handlebyte ( uint8_t b )
 {
   static int       metaindex ;                          // Index in metaline
-  static bool      oggflag = false ;                    // Handling Ogg stream
   static bool      firstmetabyte ;                      // True if first metabyte (counter) 
   static int       LFcount ;                            // Detection of end of header
   static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
@@ -1391,148 +1391,143 @@ void handlebyte ( uint8_t b )
   int              i, j ;                               // Loop control
 
   
-  switch ( datamode )
+  if ( datamode == INIT )                              // Initialize for header receive
   {
-    case DATA :                                        // Handle next byte of MP3 data
-      buf[chunkcount++] = b ;                          // Save byte in cunkbuffer
-      if ( chunkcount == sizeof(buf) )                 // Buffer full?
+    metaint = 0 ;                                      // No metaint found
+    LFcount = 0 ;                                      // For detection end of header
+    bitrate = 0 ;                                      // Bitrate still unknown
+    metaindex = 0 ;                                    // Prepare for new line
+    datamode = HEADER ;                                // Handle header
+    totalcount = 0 ;                                   // Reset totalcount
+  }
+  if ( datamode == DATA )                              // Handle next byte of MP3/Ogg data
+  {
+    buf[chunkcount++] = b ;                            // Save byte in cunkbuffer
+    if ( chunkcount == sizeof(buf) )                   // Buffer full?
+    {
+      if ( firstchunk )
       {
-        if ( firstchunk )
+        firstchunk = false ;
+        dbgprint ( "First chunk:" ) ;                  // Header for printout of first chunk
+        for ( i = 0 ; i < 32 ; i += 8 )                // Print 4 lines
         {
-          firstchunk = false ;
-          dbgprint ( "First chunk:" ) ;                // Header for printout of first chunk
-          for ( i = 0 ; i < 32 ; i += 8 )              // Print 4 lines
-          {
-            sprintf ( sbuf, "%02X %02X %02X %02X %02X %02X %02X %02X",
-                      buf[i],   buf[i+1], buf[i+2], buf[i+3],
-                      buf[i+4], buf[i+5], buf[i+6], buf[i+7] ) ;
-            dbgprint ( sbuf ) ;
-          }
-        }
-        mp3.playChunk ( buf, chunkcount ) ;            // Yes, send to player
-        chunkcount = 0 ;                               // Reset count
-      }
-      totalcount++ ;                                   // Count number of bytes, ignore overflow
-      if ( ! oggflag )                                 // No METADATA on ogg stream
-      {
-        if ( --datacount == 0 )                        // End of datablock?
-        {
-          if ( chunkcount )                            // Yes, still data in buffer?
-          {
-            mp3.playChunk ( buf, chunkcount ) ;        // Yes, send to player
-            chunkcount = 0 ;                           // Reset count
-          }
-          datamode = METADATA ;
-          firstmetabyte = true ;                       // Expecting first metabyte (counter)
-        }
-      }
-      break ;
-    case INIT :                                        // Initialize for header receive
-      LFcount = 0 ;                                    // For detection end of header
-      bitrate = 0 ;                                    // Bitrate still unknown
-      metaindex = 0 ;                                  // Prepare for new line
-      datamode = HEADER ;                              // Handle header
-      totalcount = 0 ;                                 // Reset totalcount
-      // slip into HEADER handling, no break!
-    case HEADER :                                      // Handle next byte of header 
-      if ( ( b > 0x7F ) ||                             // Ignore unprintable characters
-           ( b == '\r' ) ||                            // Ignore CR
-           ( b == '\0' ) )                             // Ignore NULL
-      {
-        // Yes, ignore
-      }
-      else if ( b == '\n' )                            // Linefeed ?
-      {
-        LFcount++ ;                                    // Count linefeeds
-        metaline[metaindex] = '\0' ;                   // Mark end of string
-        metaindex = 0 ;                                // Reset for next line
-        dbgprint ( metaline ) ;                        // Show it
-        if ( p = strstr ( metaline, "icy-br:" ) )
-        {
-          // Found bitrate tag, read the bitrate
-          bitrate = atoi ( p + 7 ) ;
-        }
-        else if ( p = strstr ( metaline, "icy-metaint:" ) )
-        {
-          // Found bitrate tag, read the bitrate
-          metaint = atoi ( p + 12 ) ;
-        }
-        else if ( p = strstr ( metaline, "icy-name:" ) )
-        {
-          // Found station name, save it, prevent overflow
-          strncpy ( sname, p + 9, sizeof ( sname ) ) ;
-          sname[sizeof(sname)-1] = '\0' ;
-          dbgprint ( "Name set" ) ;
-          displayinfo ( sname, 60, YELLOW ) ;            // Show title at position 60
-        }
-        if ( ( LFcount == 2 ) & ( bitrate != 0 ) )
-        {
-          datamode = DATA ;                              // Expecting data now
-          if ( bitrate > 0 )                             // MP3 must have bitrate set
-          {
-            datacount = metaint ;                        // Number of bytes before first metadata
-            chunkcount = 0 ;                             // Reset chunkcount
-            mp3.startSong() ;                            // Start a new song
-          }
-          else
-          {
-            oggflag = true ;                            // Negative bitrate, must be Ogg
-            displayinfo ( "Ogg-encoder", 60, YELLOW ) ; // Show title at position 60
-          }
-        }
-      }
-      else
-      {
-        metaline[metaindex] = (char)b ;               // Normal character, put new char in metaline
-        if ( metaindex < ( sizeof(metaline) - 2 ) )   // Prevent buffer overflow
-        {
-          metaindex++ ;
-        }
-        LFcount = 0 ;                                 // Reset double CRLF detection
-      }
-      break ;
-    case METADATA :                                   // Handle next bye of metadata
-      if ( firstmetabyte )                            // First byte of metadata?
-      {
-        firstmetabyte = false ;                       // Not the first anymore
-        metacount = b * 16 + 1 ;                      // New count for metadata including length byte
-        metaindex = 0 ;                               // Place to store metadata
-        if ( metacount > 1 )
-        {
-          sprintf ( sbuf, "Metadata block %d bytes",
-                    metacount-1 ) ;                  // Most of the time there are zero bytes of metadata
+          sprintf ( sbuf, "%02X %02X %02X %02X %02X %02X %02X %02X",
+                    buf[i],   buf[i+1], buf[i+2], buf[i+3],
+                    buf[i+4], buf[i+5], buf[i+6], buf[i+7] ) ;
           dbgprint ( sbuf ) ;
         }
       }
-      else
+      mp3.playChunk ( buf, chunkcount ) ;              // Yes, send to player
+      chunkcount = 0 ;                                 // Reset count
+    }
+    totalcount++ ;                                     // Count number of bytes, ignore overflow
+    if ( metaint != 0 )                                // No METADATA on Ogg streams
+    {
+      if ( --datacount == 0 )                          // End of datablock?
       {
-        metaline[metaindex] = (char)b ;               // Normal character, put new char in metaline
-        if ( metaindex < ( sizeof(metaline) - 2 ) )   // Prevent buffer overflow
+        if ( chunkcount )                              // Yes, still data in buffer?
         {
-          metaindex++ ;
+          mp3.playChunk ( buf, chunkcount ) ;          // Yes, send to player
+          chunkcount = 0 ;                             // Reset count
+        }
+        datamode = METADATA ;
+        firstmetabyte = true ;                         // Expecting first metabyte (counter)
+      }
+    }
+    return ;
+  }
+  if ( datamode == HEADER )                            // Handle next byte of MP3 header 
+  {
+    if ( ( b > 0x7F ) ||                               // Ignore unprintable characters
+         ( b == '\r' ) ||                              // Ignore CR
+         ( b == '\0' ) )                               // Ignore NULL
+    {
+      // Yes, ignore
+    }
+    else if ( b == '\n' )                              // Linefeed ?
+    {
+      LFcount++ ;                                      // Count linefeeds
+      metaline[metaindex] = '\0' ;                     // Mark end of string
+      metaindex = 0 ;                                  // Reset for next line
+      dbgprint ( metaline ) ;                          // Show it
+      if ( p = strstr ( metaline, "icy-br:" ) )
+      {
+        bitrate = atoi ( p + 7 ) ;                     // Found bitrate tag, read the bitrate
+        if ( bitrate == 0 )                            // For Ogg br is like "Quality 2"
+        {
+          bitrate = 87 ;                               // Dummy bitrate
         }
       }
-      if ( --metacount == 0 )                         
+      else if ( p = strstr ( metaline, "icy-metaint:" ) )
       {
-        if ( metaindex )                              // Any info present?
-        {
-          metaline[metaindex] = '\0' ;
-          // metaline contains artist and song name.  For example:
-          // "StreamTitle='Don McLean - American Pie';StreamUrl='';"
-          // Sometimes it is just other info like:
-          // "StreamTitle='60s 03 05 Magic60s';StreamUrl='';"
-          // Isolate the StreamTitle, remove leading and trailing quotes if present.
-          showstreamtitle() ;                         // Show artist and title if present in metadata 
-        }
-        datacount = metaint ;                         // Reset data count
-        chunkcount = 0 ;                              // Reset chunkcount
-        datamode = DATA ;                             // Expecting data
+        metaint = atoi ( p + 12 ) ;                    // Found metaint tag, read the value
       }
-      break ;
+      else if ( p = strstr ( metaline, "icy-name:" ) )
+      {
+        strncpy ( sname, p + 9, sizeof ( sname ) ) ;   // Found station name, save it, prevent overflow
+        sname[sizeof(sname)-1] = '\0' ;
+        displayinfo ( sname, 60, YELLOW ) ;            // Show title at position 60
+      }
+      if ( ( LFcount == 2 ) && ( bitrate != 0 ) )
+      {
+        dbgprint ( "Switch to DATA" ) ;
+        datamode = DATA ;                              // Expecting data now
+        datacount = metaint ;                          // Number of bytes before first metadata
+        chunkcount = 0 ;                               // Reset chunkcount
+        mp3.startSong() ;                              // Start a new song
+      }
+    }
+    else
+    {
+      metaline[metaindex] = (char)b ;                  // Normal character, put new char in metaline
+      if ( metaindex < ( sizeof(metaline) - 2 ) )      // Prevent buffer overflow
+      {
+        metaindex++ ;
+      }
+      LFcount = 0 ;                                    // Reset double CRLF detection
+    }
+    return ;
+  }
+  if ( datamode == METADATA )                          // Handle next bye of metadata
+  {
+    if ( firstmetabyte )                               // First byte of metadata?
+    {
+      firstmetabyte = false ;                          // Not the first anymore
+      metacount = b * 16 + 1 ;                         // New count for metadata including length byte
+      metaindex = 0 ;                                  // Place to store metadata
+      if ( metacount > 1 )
+      {
+        sprintf ( sbuf, "Metadata block %d bytes",
+                  metacount-1 ) ;                      // Most of the time there are zero bytes of metadata
+        dbgprint ( sbuf ) ;
+      }
+    }
+    else
+    {
+      metaline[metaindex] = (char)b ;                 // Normal character, put new char in metaline
+      if ( metaindex < ( sizeof(metaline) - 2 ) )     // Prevent buffer overflow
+      {
+        metaindex++ ;
+      }
+    }
+    if ( --metacount == 0 )                         
+    {
+      if ( metaindex )                                // Any info present?
+      {
+        metaline[metaindex] = '\0' ;
+        // metaline contains artist and song name.  For example:
+        // "StreamTitle='Don McLean - American Pie';StreamUrl='';"
+        // Sometimes it is just other info like:
+        // "StreamTitle='60s 03 05 Magic60s';StreamUrl='';"
+        // Isolate the StreamTitle, remove leading and trailing quotes if present.
+        showstreamtitle ( metaline ) ;                // Show artist and title if present in metadata 
+      }
+      datacount = metaint ;                           // Reset data count
+      chunkcount = 0 ;                                // Reset chunkcount
+      datamode = DATA ;                               // Expecting data
+    }
   }
 }
-
-
 
 
 //******************************************************************************************
