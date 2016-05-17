@@ -7,7 +7,7 @@ Features:
 -	Handles bitrates up to 320 kbps.
 -	Has a preset list of maximal 63 favorite radio stations in EEPROM.
 -	Can be controlled by a tablet or other device through a build-in webserver.
--	Optional one button control to skip to the next preset station.
+-	Optional one or three button control to skip to the next preset station.
 -	The strongest available WiFi network is automatically selected.
 -	Heavily commented source code, easy to add extra functionality.
 -	Debug information through serial output.
@@ -20,6 +20,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 17-may-2016: 3 button control over analog or digital input.
 - 13-may-2016: Better detection of Ogg streams.
 - 07-may-2016: Added selection of preset stations to sketch and web page.
 - 06-may-2016: Added hidden SSID, added feature to web page.
