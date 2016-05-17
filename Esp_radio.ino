@@ -41,6 +41,13 @@
 // file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
 // changed to use the full screenwidth if rotated to mode "3".  Now there is room for 26
 // characters per line and 16 lines.  Software will work without installing the display.
+// If no TFT is used, you may use GPIO2 and GPIO15 as control buttons.  See definition of "USETFT" below.
+// Switches are than programmed as:
+// GPIO2 : "Goto station 1"
+// GPIO0 : "Next station"
+// GPIO15: "Previous station".  Note that GPIO is pulled low for NodeMCU modules, use 10 kOhm for pull-up.
+// Set these values to 2000 if not used or tie analog input to ground.
+
 //
 // For configuration of the WiFi network(s): see the global data section further on.
 //
@@ -52,12 +59,12 @@
 // D0       GPIO16  16              -                   pin 1 DCS            -
 // D1       GPIO5    5              -                   pin 2 CS             LED on nodeMCU
 // D2       GPIO4    4              -                   pin 4 DREQ           -
-// D3       GPIO0    0 FLASH        -                   -                    Control button
-// D4       GPIO2    2              pin 3 (D/C)         -                    -
+// D3       GPIO0    0 FLASH        -                   -                    Control button "Next station"
+// D4       GPIO2    2              pin 3 (D/C)         -                    (OR)Control button "Station 1"
 // D5       GPIO14  14 SCLK         pin 5 (CLK)         pin 5 SCK            -
 // D6       GPIO12  12 MISO         -                   pin 7 MISO           -
 // D7       GPIO13  13 MOSI         pin 4 (DIN)         pin 6 MOSI           -
-// D8       GPIO15  15              pin 2 (CS)          -                    -
+// D8       GPIO15  15              pin 2 (CS)          -                    (OR)Control button "Previous station"
 // D9       GPI03    3 RXD0         -                   -                    Reserved serial input
 // D10      GPIO1    1 TXD0         -                   -                    Reserved serial output
 // -------  ------  --------------  ---------------     -------------------  ---------------------
@@ -72,7 +79,7 @@
 // Issue:
 // Webserver produces error "LmacRxBlk:1" after some time.  After that it will work verry slow.
 // The program will reset the ESP8266 in such a case.  Now we have switched to async webserver,
-// it looks like the problem has disappeared.
+// the problem still exists, but the program will not crash anymore.
 //
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
@@ -90,13 +97,18 @@
 // 07-05-2016, ES: Added preset selection in webserver
 // 12-05-2016, ES: Added support for Ogg-encoder
 // 13-05-2016, ES: Better Ogg detection
+// 17-05-2016, ES: Analog input for commands, extra buttons if no TFT required.
 //
+// TFT.  Define USETFT if required.
+#define USETFT
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <SPI.h>
+#if defined ( USETFT )
 #include <Adafruit_GFX.h>
 #include <TFT_ILI9163C.h>
+#endif
 #include <Ticker.h>
 #include <stdio.h>
 #include <string.h>
@@ -109,7 +121,17 @@ extern "C"
   #include "user_interface.h"
 }
 
-// Color definitions for the TFT screen
+// Definitions for 3 control switches on analog input
+// You can test the analog input values by holding down the switch and select /?analog=1
+// in the web interface. See schematics in the documentation.
+// Switches are programmed as "Goto station 1", "Next station" and "Previous station" respectively.
+// Set these values to 2000 if not used or tie analog input to ground.
+#define NUMANA  3
+#define asw1    252
+#define asw2    334
+#define asw3    499
+//
+// Color definitions for the TFT screen (if used)
 #define	BLACK   0x0000
 #define	BLUE    0xF800
 #define	RED     0x001F
@@ -118,17 +140,18 @@ extern "C"
 #define MAGENTA RED | BLUE
 #define YELLOW  RED | GREEN  
 #define WHITE   0xFFFF
-
 // Digital I/O used
 // Pins for VS1053 module
 #define VS1053_CS     5
 #define VS1053_DCS    16
 #define VS1053_DREQ   4
-// Pins CS and DC for TFT module
+// Pins CS and DC for TFT module (if used, see definition of "USETFT")
 #define TFT_CS 15
 #define TFT_DC 2
-// Control button for controlling station
-#define BUTTON 0
+// Control button (GPIO) for controlling station
+#define BUTTON1 2
+#define BUTTON2 0
+#define BUTTON3 15
 // Maximal number of presets in EEPROM and size of an entry
 #define EENUM 64
 #define EESIZ 64
@@ -145,7 +168,9 @@ int              DEBUG = 1 ;
 WiFiClient       mp3client ;                               // An instance of the mp3 client
 AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver
 String           cmd ;                                     // Command from remote
+#if defined ( USETFT )
 TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
+#endif
 Ticker           tckr ;                                    // For timing 10 sec
 uint32_t         totalcount = 0 ;                          // Counter mp3 data
 char             sbuf[100] ;                               // For debug lines
@@ -174,6 +199,9 @@ uint8_t*         ringbuf ;                                 // Ringbuffer for VS1
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
 uint16_t         rbrindex = RINGBFSIZ - 1 ;                // Emptypointer in ringbuffer
 uint16_t         rcount = 0 ;                              // Number of bytes in ringbuffer
+uint16_t         analogsw[NUMANA] = { asw1, asw2, asw3 } ; // 3 levels of analog input
+uint16_t         analogrest ;                              // Rest value of analog input
+
 //
 // List of initial preset stations.
 // This will be copied to EEPROM if EEPROM is empty.  The first entry [0] is reserved
@@ -795,15 +823,48 @@ void timer10sec()
 
 
 //******************************************************************************************
+//                                  A N A G E T S W                                        *
+//******************************************************************************************
+// Translate analog input to switch number.  0 is inactive.                                *
+//******************************************************************************************
+uint8_t anagetsw ( uint16_t v )
+{
+  int      i ;                                    // Loop control
+  int      oldmindist = 3000 ;                    // Detection least difference
+  int      newdist ;                              // New found difference
+  uint8_t  sw = 0 ;                               // Number of switch detected (0 or 1..3)   
+
+  if ( v > analogrest )                           // Inactive level?
+  {
+    for ( i = 0 ; i < NUMANA ; i++ )
+    {
+      newdist = abs ( analogsw[i] - v ) ;          // Compute difference
+      if ( newdist < oldmindist )                  // New least difference?
+      {
+        oldmindist = newdist ;                     // Yes, remember
+        sw = i + 1 ;                               // Remember switch 
+      }
+    }
+  }
+  return sw ;                                      // Return active switch
+}
+
+
+//******************************************************************************************
 //                                  T I M E R 1 0 0                                        *
 //******************************************************************************************
 // Examine button every 100 msec.                                                          *
 //******************************************************************************************
 void timer100()
 {
-  static int  count10sec = 0 ;
-  static int  oldval = HIGH ;
-  int         newval ;
+  static int     count10sec = 0 ;                 // Counter for activatie 10 seconds process
+  static int     oldval1 = HIGH ;                 // Previous value of digital input button 1
+  static int     oldval2 = HIGH ;                 // Previous value of digital input button 2
+  static int     oldval3 = HIGH ;                 // Previous value of digital input button 3
+  int            newval ;                         // New value of digital input switch
+  uint16_t       v ;                              // Analog input value 0..1023
+  static uint8_t aoldval = 0 ;                    // Previous value of analog input switch
+  uint8_t        anewval ;                        // New value of analog input switch (0..3)
   
   if ( ++count10sec == 100  )                     // 10 seconds passed?
   {
@@ -812,23 +873,69 @@ void timer100()
   }
   else
   {
-    newval = digitalRead ( BUTTON ) ;             // Test if below certain level
-    if ( newval != oldval )
+    #if ( not ( defined ( USETFT ) ) )
+    newval = digitalRead ( BUTTON1 ) ;            // Test if below certain level
+    if ( newval != oldval1 )                      // Change?
     {
-      oldval = newval ;                           // Remember value
+      oldval1 = newval ;                          // Yes, remember value
       if ( newval == LOW )                        // Button pushed?
       {
-        newpreset = currentpreset + 1 ;           // Remember action
-        //dbgprint ( "Button pushed" ) ;
+        newpreset = 1 ;                           // Yes, goto station preset 1
+        dbgprint ( "Digital button 1 pushed" ) ;
+      }
+      return ;
+    }
+    #endif
+    newval = digitalRead ( BUTTON2 ) ;            // Test if below certain level
+    if ( newval != oldval2 )                      // Change?
+    {
+      oldval2 = newval ;                          // Yes, remember value
+      if ( newval == LOW )                        // Button pushed?
+      {
+        newpreset = currentpreset + 1 ;           // Yes, goto next preset station
+        dbgprint ( "Digital button 2 pushed" ) ;
+      }
+      return ;
+    }
+    #if ( not ( defined ( USETFT ) ) )
+    newval = digitalRead ( BUTTON3 ) ;            // Test if below certain level
+    if ( newval != oldval3 )                      // Change?
+    {
+      oldval3 = newval ;                          // Yes, remember value
+      if ( newval == LOW )                        // Button pushed?
+      {
+        newpreset = currentpreset - 1 ;           // Yes, goto previous preset station
+        dbgprint ( "Digital button 3 pushed" ) ;
+      }
+      return ;
+    }
+    #endif
+    v = analogRead ( A0 ) ;                       // Read analog value
+    anewval = anagetsw ( v ) ;                    // Check analog value for program switches
+    if ( anewval != aoldval )                     // Change?
+    {
+      aoldval = anewval ;                         // Remember value for change detection
+      if ( anewval != 0 )                         // Button pushed?
+      {
+        sprintf ( sbuf, "Analog button %d pushed, v = %d",
+                  anewval, v ) ;
+        dbgprint ( sbuf ) ;
+        if ( anewval == 1 )                       // Button 1?
+        {
+          newpreset = 1 ;                         // Yes, goto preset 1
+        }
+        else if ( anewval == 2 )                  // Button 2?
+        {
+          newpreset = currentpreset + 1 ;         // Yes, goto next preset
+        }
+        else if ( anewval == 3 )                  // Button 3?
+        {
+          newpreset = currentpreset - 1 ;         // Yes, goto previous preset
+        }
       }
     }
   }
-  //while ( mp3.data_request() && ringavail() )     // Try to keep VS1053 filled
-  //{
-  //  handlebyte ( getring() ) ;                    // Yes, handle it
-  //}
 }
-
 
 //******************************************************************************************
 //                              D I S P L A Y I N F O                                      *
@@ -837,12 +944,13 @@ void timer100()
 //******************************************************************************************
 void displayinfo ( const char *str, int pos, uint16_t color )
 {
+#if defined ( USETFT )
   tft.fillRect ( 0, pos, 160, 40, BLACK ) ;   // Clear the space for new info
   tft.setTextColor ( color ) ;                // Set the requested color
   tft.setCursor ( 0, pos ) ;                  // Prepare to show the info
   tft.print ( str ) ;                         // Show the string
+#endif
 }
-
 
 //******************************************************************************************
 //                        S H O W S T R E A M T I T L E                                    *
@@ -1167,7 +1275,9 @@ void connectwifi()
   sprintf ( sbuf, "IP = %d.%d.%d.%d",
                   WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
   dbgprint ( sbuf ) ;
+  #if defined ( USETFT )
   tft.println ( sbuf ) ;
+  #endif
 }
 
 
@@ -1273,7 +1383,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
   sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP Version 12-05-2016...  Free memory %d",
+            "Starting ESP Version 17-05-2016...  Free memory %d",
             system_get_free_heap_size() ) ;
   dbgprint ( sbuf ) ;
   sprintf ( sbuf,                                    // Some sketch info
@@ -1283,8 +1393,9 @@ void setup()
   dbgprint ( sbuf ) ;
   fill_eeprom() ;                                    // Fill if empty
   restoreVolumeAndPreset() ;                         // Restore saved settings
-  pinMode ( BUTTON, INPUT ) ;                        // Input for control button
+  pinMode ( BUTTON2, INPUT_PULLUP ) ;                // Input for control button 2
   mp3.begin() ;                                      // Initialize VS1053 player
+  # if defined ( USETFT )
   tft.begin() ;                                      // Init TFT interface
   tft.fillRect ( 0, 0, 160, 128, BLACK ) ;           // Clear screen does not work when rotated
   tft.setRotation ( 3 ) ;                            // Use landscape format
@@ -1292,6 +1403,10 @@ void setup()
   tft.setTextSize ( 1 ) ;                            // Small character font
   tft.setTextColor ( WHITE ) ;  
   tft.println ( "Starting" ) ;
+  #else
+  pinMode ( BUTTON1, INPUT_PULLUP ) ;                // Input for control button 1
+  pinMode ( BUTTON3, INPUT_PULLUP ) ;                // Input for control button 3
+  #endif
   delay(10);
   streamtitle[0] = '\0' ;                            // No title yet
   newstation[0] = '\0' ;                             // No new station yet
@@ -1314,6 +1429,7 @@ void setup()
   ArduinoOTA.setHostname ( "ESP-radio" ) ;           // Set the hostname
   ArduinoOTA.onStart ( otastart ) ;
   ArduinoOTA.begin() ;                               // Allow update over the air
+  analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;   // Assumed inactive analog input
 }
 
 
@@ -1758,6 +1874,11 @@ void handleCmd ( AsyncWebServerRequest *request )
   {
     getpresets ( request ) ;                          // Yes, get the list and send it as reply
     return ; 
+  }
+  else if ( argument.indexOf ( "analog" ) == 0 )      // list request
+  {
+    sprintf ( reply, "Analog input = %d units",       // Read the analog input for test
+              analogRead ( A0 ) ) ;
   }
   else
   {
