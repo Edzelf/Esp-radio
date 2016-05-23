@@ -20,6 +20,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 23-may-2016: Bugfix EEPROM handling.
 - 17-may-2016: 3 button control over analog or digital input.
 - 13-may-2016: Better detection of Ogg streams.
 - 07-may-2016: Added selection of preset stations to sketch and web page.
