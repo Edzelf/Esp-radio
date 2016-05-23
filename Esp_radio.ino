@@ -152,12 +152,29 @@ extern "C"
 #define BUTTON1 2
 #define BUTTON2 0
 #define BUTTON3 15
-// Maximal number of presets in EEPROM and size of an entry
+// Maximal number of presets in EEPROM and size of an entry, total space <= 4096 bytes
 #define EENUM 64
 #define EESIZ 64
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
 #define RINGBFSIZ 20000
-
+// Debug buffer size
+#define DEBUG_BUFFER_SIZE 100
+//
+//******************************************************************************************
+// Forward declaration of methods                                                          *
+//******************************************************************************************
+void  displayinfo ( const char *str, int pos, uint16_t color ) ;
+int   find_eeprom_station ( const char *search_entry ) ;
+void  put_empty_eeprom_station ( int index ) ;
+int   find_free_eeprom_entry();
+char* get_eeprom_station ( int index ) ;
+void  put_eeprom_station ( int index, const char *entry ) ;
+void  showstreamtitle() ;
+void  handlebyte ( uint8_t b ) ;
+void  handleFS ( AsyncWebServerRequest *request ) ;
+void  handleCmd ( AsyncWebServerRequest *request )  ;
+char* dbgprint( const char* format, ... ) ;
+//
 //******************************************************************************************
 // Global data section.                                                                    *
 //******************************************************************************************
@@ -173,7 +190,6 @@ TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
 #endif
 Ticker           tckr ;                                    // For timing 10 sec
 uint32_t         totalcount = 0 ;                          // Counter mp3 data
-char             sbuf[100] ;                               // For debug lines
 datamode_t       datamode ;                                // State of datastream
 int              metacount ;                               // Number of bytes in metadata
 int              datacount ;                               // Counter databytes before metadata
@@ -229,8 +245,6 @@ const char*      hostlist[] = {
 // End of lobal data section.                                                              *
 //******************************************************************************************
 
-void dbgprint ( const char* p ) ;   // Forward declaration for VS1053 stuff
-
 //******************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                              *
 //******************************************************************************************
@@ -264,7 +278,6 @@ private:
   const uint8_t SM_LINE1          = 14 ;        // Bitnumber in SCI_MODE for Line input
   SPISettings   VS1053_SPI ;                    // SPI settings for this slave
   uint8_t       endFillByte ;                   // Byte to send when stopping song
-  char          lsbuf[60] ;                     // For debugging
 protected:
   inline void await_data_request() const
   {
@@ -454,8 +467,7 @@ bool VS1053::testComm ( const char *header )
     r2 = read_register ( SCI_VOL ) ;                    // Read back a second time
     if  ( r1 != r2 || i != r1 || i != r2 )              // Check for 2 equal reads
     {
-      sprintf ( lsbuf, "VS1053 error retry SB:%04X R1:%04X R2:%04X", i, r1, r2 ) ;
-      dbgprint ( lsbuf ) ;
+      dbgprint ( "VS1053 error retry SB:%04X R1:%04X R2:%04X", i, r1, r2 ) ;
       cnt++ ;
       delay ( 10 ) ;
     }
@@ -504,8 +516,7 @@ void VS1053::begin()
   delay ( 10 ) ;
   await_data_request() ;
   endFillByte = wram_read ( 0x1E06 ) & 0xFF ;
-  sprintf ( lsbuf, "endFillByte is %X", endFillByte ) ;
-  dbgprint ( lsbuf ) ;
+  dbgprint ( "endFillByte is %X", endFillByte ) ;
   //printDetails ( "After last clocksetting" ) ;
   delay ( 100 ) ;
 }
@@ -568,9 +579,7 @@ void VS1053::stopSong()
     if ( ( modereg & _BV ( SM_CANCEL ) ) == 0 )
     {
       sdi_send_fillers ( 2052 ) ;
-      sprintf ( lsbuf, "Song stopped correctly after %d msec",
-                i * 10 ) ;
-      dbgprint ( lsbuf ) ;
+      dbgprint ( "Song stopped correctly after %d msec", i * 10 ) ;
       return ;
     }
     delay ( 10 ) ;
@@ -600,8 +609,7 @@ void VS1053::printDetails ( const char *header )
   for ( i = 0 ; i <= SCI_num_registers ; i++ )
   {
     delay ( 5 ) ;
-    sprintf ( lsbuf, "%3X - %5X", i, regbuf[i] ) ;
-    dbgprint ( lsbuf ) ;
+    dbgprint ( "%3X - %5X", i, regbuf[i] ) ;
   }
 }
 
@@ -677,15 +685,23 @@ void emptyring()
 //******************************************************************************************
 //                                  D B G P R I N T                                        *
 //******************************************************************************************
-// Send a line of text to serial output.                                                   *
+// Send a line of info to serial output.  Works like vsprintf(), but checks the BEDUg flag.*
+// Print only if DEBUG flag is true.  Always returns the the formatted string.             *
 //******************************************************************************************
-void dbgprint ( const char* p )
+char* dbgprint ( const char* format, ... )
 {
-  if ( DEBUG )
+  static char sbuf[DEBUG_BUFFER_SIZE] ;               // For debug lines
+  va_list varArgs ;                                    // For variable number of params
+
+  va_start ( varArgs, format ) ;                       // Prepare parameters
+  vsnprintf ( sbuf, sizeof(sbuf), format, varArgs ) ;  // Format the message
+  va_end ( varArgs ) ;                                 // End of using parameters
+  if ( DEBUG )                                         // DEBUG on?
   {
-    Serial.print ( "D: " ) ;
-    Serial.println ( p ) ;
+    Serial.print ( "D: " ) ;                           // Yes, print prefix
+    Serial.println ( sbuf ) ;                          // and the info
   }
+  return sbuf ;                                        // Return stored string
 }
 
 
@@ -738,10 +754,8 @@ void listNetworks()
     return ;
   }
   // print the list of networks seen:
-  sprintf ( sbuf, "Number of available networks: %d",
+  dbgprint ( "Number of available networks: %d",
             numSsid ) ;
-  dbgprint ( sbuf ) ;
-
   // Print the network number and name for each network found and
   // find the strongest acceptable network
   for ( i = 0 ; i < numSsid ; i++ )
@@ -759,11 +773,10 @@ void listNetworks()
       }
     }
     encryption = WiFi.encryptionType ( i ) ;
-    sprintf ( sbuf, "%2d - %-25s Signal: %3d dBm Encryption %4s  %s",
-                   i + 1, WiFi.SSID ( i ).c_str(), WiFi.RSSI ( i ),
-                   getEncryptionType ( encryption ),
-                   acceptable ) ;
-    dbgprint ( sbuf ) ;
+    dbgprint ( "%2d - %-25s Signal: %3d dBm Encryption %4s  %s",
+               i + 1, WiFi.SSID ( i ).c_str(), WiFi.RSSI ( i ),
+               getEncryptionType ( encryption ),
+               acceptable ) ;
   }
   dbgprint ( "--------------------------------------" ) ;
 }
@@ -917,9 +930,7 @@ void timer100()
       aoldval = anewval ;                         // Remember value for change detection
       if ( anewval != 0 )                         // Button pushed?
       {
-        sprintf ( sbuf, "Analog button %d pushed, v = %d",
-                  anewval, v ) ;
-        dbgprint ( sbuf ) ;
+        dbgprint ( "Analog button %d pushed, v = %d", anewval, v ) ;
         if ( anewval == 1 )                       // Button 1?
         {
           newpreset = 1 ;                         // Yes, goto preset 1
@@ -1011,6 +1022,7 @@ void connecttohost()
   int         i ;                                   // Index free EEPROM entry
   char*       eepromentry ;                         // Pointer to copy of EEPROM entry 
   char*       p ;                                   // Pointer in hostname
+  char*       pfs ;                                 // Pointer to formatted string
   const char* extension = "/" ;                     // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
   
   dbgprint ( "Connect to new host" ) ;
@@ -1054,8 +1066,7 @@ void connecttohost()
   }
   currentpreset = newpreset ;                       // This is the new preset
   strcpy ( host, eepromentry ) ;                    // Select first station number
-  sprintf ( sbuf, "EEprom entry is %s", host ) ;    // The selected entry
-  dbgprint ( sbuf ) ;
+  dbgprint ( "EEprom entry is %s", host ) ;         // The selected entry
   p = strstr ( host, ":" ) ;                        // Search for separator
   *p++ = '\0' ;                                     // Remove port from string and point to port
   port = atoi ( p ) ;                               // Get portnumber as integer
@@ -1066,10 +1077,9 @@ void connecttohost()
     extension = p ;                                 // Yes, change the default
     dbgprint ( "Slash in station" ) ;
   }
-  sprintf ( sbuf, "Connect to preset %d, host %s on port %d, extension %s",
-            currentpreset, host, port, extension ) ;
-  dbgprint ( sbuf ) ;
-  displayinfo ( sbuf, 60, YELLOW ) ;                // Show info at position 60
+  pfs = dbgprint ( "Connect to preset %d, host %s on port %d, extension %s",
+                   currentpreset, host, port, extension ) ;
+  displayinfo ( pfs, 60, YELLOW ) ;                 // Show info at position 60
   delay ( 2000 ) ;                                  // Show for some time
   mp3client.flush() ;
   if ( mp3client.connect ( host, port ) )
@@ -1187,7 +1197,7 @@ void put_empty_eeprom_station ( int index )
   int         address ;                // Address in EEPROM 
 
   address = index * EESIZ ;            // Compute address in EEPROM
-  for ( i = 0 ; i < EENUM ; i++ )
+  for ( i = 0 ; i < EESIZ ; i++ )
   {
     EEPROM.write ( address++, 0 ) ;
   }
@@ -1212,17 +1222,23 @@ void fill_eeprom()
   p = get_eeprom_station ( 0 ) ;                     // Get reserved entry to check status
   if ( strcmp ( p, hostlist[0] ) == 0 )              // Starts with a familiar pattern?
   {
-    // Yes, show the list for debugging purposes
+    // Yes, Check entry and show the list for debugging purposes
     dbgprint ( "EEPROM is already filled. Available stations:" ) ;
     for ( i = 0 ; i < EENUM ; i++ )                  // List all for entries
     {
       p = get_eeprom_station ( i ) ;                 // Get next entry
-      if ( *p )                                      // Check if filled with a station
-      { 
-        fillflag = i ;                               // > 0 if at least one line is filled
-        sprintf ( sbuf, "%02d - %s",
-                  i, get_eeprom_station ( i ) ) ;
-        dbgprint ( sbuf ) ;
+      if ( *p == 0xFF )                              // FF means not yet initialized
+      {
+        put_empty_eeprom_station ( i ) ;             // Fill with a zero pattern
+      }
+      else
+      {
+        if ( *p )                                    // Check if filled with a station
+        {
+          fillflag = i ;                             // > 0 if at least one line is filled
+          p = get_eeprom_station ( i ) ;
+          dbgprint ( "%02d - %s", i, p ) ;
+        }
       }
     }
     if ( fillflag )
@@ -1234,7 +1250,7 @@ void fill_eeprom()
   dbgprint ( "EEPROM is empty.  Will be filled now." ) ;
   delay ( 300 ) ;
   j = 0 ;                                            // Point to first line in hostlist
-  for ( i = 0 ; i < EESIZ ; i++ )                    // Space for all entries
+  for ( i = 0 ; i < EENUM ; i++ )                    // Space for all entries
   {
     if ( hostlist[j] )                               // At last host in the list?
     { 
@@ -1259,24 +1275,23 @@ void connectwifi()
   String path ;                                        // Full file spec
   String pw ;                                          // Password from file
   File   pwfile ;                                      // File containing password for WiFi
+  char*  pfs ;                                         // Poiter to formatted string
   
   path = String ( "/" )  + ssid + String ( ".pw" ) ;   // Form full path
   pwfile = SPIFFS.open ( path, "r" ) ;                 // File name equal to SSID
   pw = pwfile.readStringUntil ( '\n' ) ;               // Read password as a string
   pw.trim() ;                                          // Remove CR                              
   WiFi.begin ( ssid.c_str(), pw.c_str() ) ;            // Connect to selected SSID
-  sprintf ( sbuf, "Try WiFi %s",
-            ssid.c_str() ) ;                           // Message to show during WiFi connect
+  dbgprint ( "Try WiFi %s", ssid.c_str() ) ;           // Message to show during WiFi connect
   if (  WiFi.waitForConnectResult() != WL_CONNECTED )  // Try to connect
   {
     dbgprint ( "WiFi Failed!" ) ;
     return;
   }
-  sprintf ( sbuf, "IP = %d.%d.%d.%d",
-                  WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
-  dbgprint ( sbuf ) ;
+  pfs = dbgprint ( "IP = %d.%d.%d.%d",
+                   WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
   #if defined ( USETFT )
-  tft.println ( sbuf ) ;
+  tft.println ( pfs ) ;
   #endif
 }
 
@@ -1297,9 +1312,8 @@ void saveVolumeAndPreset()
   p[EESIZ-2] = savvolume ;                           // Save volume
   p[EESIZ-1] = currentpreset ;                       // Save preset station
   put_eeprom_station ( 0, p ) ;                      // Put in EEPROM
-  sprintf ( sbuf, "Settings saved: volume %d, preset %d",
-            savvolume, savpreset ) ;
-  dbgprint ( sbuf ) ;
+  dbgprint ( "Settings saved: volume %d, preset %d",
+             savvolume, savpreset ) ;
 }
 
 
@@ -1321,9 +1335,8 @@ void restoreVolumeAndPreset()
     newpreset = *p ;                                 // Restore saved preset
     savvolume = reqvol ;                             // Saved volume
     savpreset = newpreset ;                          // Saved preset station
-    sprintf ( sbuf, "Restored settings: volume %d, preset %d",
-              reqvol, newpreset ) ;
-    dbgprint ( sbuf ) ;
+    dbgprint ( "Restored settings: volume %d, preset %d",
+               reqvol, newpreset ) ;
   }
 }
 
@@ -1361,16 +1374,14 @@ void setup()
   SPIFFS.begin() ;                                   // Enable file system
   // Show some info about the SPIFFS
   SPIFFS.info ( fs_info ) ;
-  sprintf ( sbuf, "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
-  dbgprint ( sbuf ) ;
+  dbgprint ( "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
   dir = SPIFFS.openDir("/") ;                        // Show files in FS
   while ( dir.next() )                               // All files
   {
     f = dir.openFile ( "r" ) ;
     filename = dir.fileName() ;
-    sprintf ( sbuf, "%-32s - %6d",                   // Show name and size
-              filename.c_str(), f.size() ) ;
-    dbgprint ( sbuf ) ;
+    dbgprint ( "%-32s - %6d",                        // Show name and size
+               filename.c_str(), f.size() ) ;
     if ( filename.endsWith ( ".pw" ) )               // If this a password file?
     {
       numpwf++ ;                                     // Yes, count number password files
@@ -1381,16 +1392,13 @@ void setup()
   WiFi.mode ( WIFI_STA ) ;                           // This ESP is a station
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
   SPI.begin() ;                                      // Init SPI bus
-  EEPROM.begin ( 2048 ) ;                            // For station list in EEPROM
-  sprintf ( sbuf,                                    // Some memory info
-            "Starting ESP Version 17-05-2016...  Free memory %d",
-            system_get_free_heap_size() ) ;
-  dbgprint ( sbuf ) ;
-  sprintf ( sbuf,                                    // Some sketch info
-            "Sketch size %d, free size %d",
-            ESP.getSketchSize(),
-            ESP.getFreeSketchSpace() ) ;
-  dbgprint ( sbuf ) ;
+  EEPROM.begin ( EENUM * EESIZ ) ;                   // For station list in EEPROM
+  // Print some memory and sketch info
+  dbgprint ( "Starting ESP Version 23-05-2016...  Free memory %d",
+             system_get_free_heap_size() ) ;
+  dbgprint ( "Sketch size %d, free size %d",
+              ESP.getSketchSize(),
+              ESP.getFreeSketchSpace() ) ;
   fill_eeprom() ;                                    // Fill if empty
   restoreVolumeAndPreset() ;                         // Restore saved settings
   pinMode ( BUTTON2, INPUT_PULLUP ) ;                // Input for control button 2
@@ -1417,8 +1425,7 @@ void setup()
     dbgprint ( "Single (hidden) SSID found" ) ;
     ssid = potSSID ;                                 // Use this SSID (it may be hidden)
   }
-  sprintf ( sbuf, "Selected network: %-25s", ssid.c_str() ) ;
-  dbgprint ( sbuf ) ;
+  dbgprint ( "Selected network: %-25s", ssid.c_str() ) ;
   connectwifi() ;                                    // Connect to WiFi network
   dbgprint ( "Start server for commands" ) ;
   cmdserver.on ( "/", handleCmd ) ;                  // Handle startpage
@@ -1527,10 +1534,9 @@ void handlebyte ( uint8_t b )
         dbgprint ( "First chunk:" ) ;                  // Header for printout of first chunk
         for ( i = 0 ; i < 32 ; i += 8 )                // Print 4 lines
         {
-          sprintf ( sbuf, "%02X %02X %02X %02X %02X %02X %02X %02X",
-                    buf[i],   buf[i+1], buf[i+2], buf[i+3],
-                    buf[i+4], buf[i+5], buf[i+6], buf[i+7] ) ;
-          dbgprint ( sbuf ) ;
+          dbgprint ( "%02X %02X %02X %02X %02X %02X %02X %02X",
+                     buf[i],   buf[i+1], buf[i+2], buf[i+3],
+                     buf[i+4], buf[i+5], buf[i+6], buf[i+7] ) ;
         }
       }
       mp3.playChunk ( buf, chunkcount ) ;              // Yes, send to player
@@ -1613,9 +1619,8 @@ void handlebyte ( uint8_t b )
       metaindex = 0 ;                                  // Place to store metadata
       if ( metacount > 1 )
       {
-        sprintf ( sbuf, "Metadata block %d bytes",
-                  metacount-1 ) ;                      // Most of the time there are zero bytes of metadata
-        dbgprint ( sbuf ) ;
+        dbgprint ( "Metadata block %d bytes",
+                   metacount-1 ) ;                     // Most of the time there are zero bytes of metadata
       }
     }
     else
@@ -1676,8 +1681,7 @@ void handleFS ( AsyncWebServerRequest *request )
   String ct ;                                           // Content type
 
   fnam = request->url() ;
-  sprintf ( sbuf, "onFileRequest received %s", fnam.c_str() ) ;
-  dbgprint ( sbuf ) ;
+  dbgprint ( "onFileRequest received %s", fnam.c_str() ) ;
   ct = getContentType ( fnam ) ;                        // Get content type
   if ( ct == "" )                                       // Empty is illegal
   {
@@ -1735,6 +1739,7 @@ void getpresets ( AsyncWebServerRequest *request )
 //   test       = 0                         // For test purposes                           *
 //   debug      = 0 or 1                    // Switch debugging on or off                  *
 //   list       = 0                         // Returns list of presets                     *
+//   analog     = 0                         // Show current analog input value             *
 // Multiple parameters are ignored.  An extra parameter may be "version=<random number>"   *
 // in order to prevent browsers like Edge and IE to use their cache.  This "version" is    *
 // ignored.                                                                                *
@@ -1774,9 +1779,8 @@ void handleCmd ( AsyncWebServerRequest *request )
     relative = true ;                                 // It's relative
     ivalue = - ivalue ;                               // But with negative value
   }
-  sprintf ( sbuf, "Command: %s with parameter %s converted to %d",
-            argument.c_str(), value.c_str(), ivalue ) ;
-  dbgprint ( sbuf ) ;
+  dbgprint ( "Command: %s with parameter %s converted to %d",
+             argument.c_str(), value.c_str(), ivalue ) ;
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "volume+", "volume-" or "volume" for relative or absolute setting
@@ -1870,12 +1874,16 @@ void handleCmd ( AsyncWebServerRequest *request )
     sprintf ( reply, "Parameter for bass/treble %s set to %d",
               argument.c_str(), ivalue ) ;
   }
-  else if ( argument.indexOf ( "list" ) == 0 )        // list request
+  else if ( argument.indexOf ( "list" ) == 0 )        // list request?
   {
     getpresets ( request ) ;                          // Yes, get the list and send it as reply
     return ; 
   }
-  else if ( argument.indexOf ( "analog" ) == 0 )      // list request
+  else if ( argument.indexOf ( "debug" ) == 0 )       // debug on/off request?
+  {
+    DEBUG = ivalue ;                                  // Yes, set flag accordingly
+  }
+  else if ( argument.indexOf ( "analog" ) == 0 )      // Show analog request?
   {
     sprintf ( reply, "Analog input = %d units",       // Read the analog input for test
               analogRead ( A0 ) ) ;
