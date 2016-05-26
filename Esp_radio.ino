@@ -45,8 +45,8 @@
 // Switches are than programmed as:
 // GPIO2 : "Goto station 1"
 // GPIO0 : "Next station"
-// GPIO15: "Previous station".  Note that GPIO is pulled low for NodeMCU modules, use 10 kOhm for pull-up.
-// Set these values to 2000 if not used or tie analog input to ground.
+// GPIO15: "Previous station".  Note that GPIO15 has to be LOW when starting the ESP8266.
+//         The button for GPIO15 must therefore be connected to VCC (3.3V) instead of GND.
 
 //
 // For configuration of the WiFi network(s): see the global data section further on.
@@ -77,7 +77,7 @@
 // (wired OR gate) because there was not a free GPIO output available for this function.
 // This circuit is included in the documentation.
 // Issue:
-// Webserver produces error "LmacRxBlk:1" after some time.  After that it will work verry slow.
+// Webserver produces error "LmacRxBlk:1" after some time.  After that it will work very slow.
 // The program will reset the ESP8266 in such a case.  Now we have switched to async webserver,
 // the problem still exists, but the program will not crash anymore.
 //
@@ -98,7 +98,11 @@
 // 12-05-2016, ES: Added support for Ogg-encoder
 // 13-05-2016, ES: Better Ogg detection
 // 17-05-2016, ES: Analog input for commands, extra buttons if no TFT required.
+// 23-05-2016, ES: Fixed EEPROM size and number of entries, better dbgprint.
+// 26-05-2016, ES: Fixed BUTTON3 bug (no TFT)
 //
+// Define the version number:
+#define VERSION "26-may-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -127,9 +131,12 @@ extern "C"
 // Switches are programmed as "Goto station 1", "Next station" and "Previous station" respectively.
 // Set these values to 2000 if not used or tie analog input to ground.
 #define NUMANA  3
-#define asw1    252
-#define asw2    334
-#define asw3    499
+//#define asw1    252
+//#define asw2    334
+//#define asw3    499
+#define asw1    2000
+#define asw2    2000
+#define asw3    2000
 //
 // Color definitions for the TFT screen (if used)
 #define	BLACK   0x0000
@@ -911,7 +918,9 @@ void timer100()
       return ;
     }
     #if ( not ( defined ( USETFT ) ) )
+    // Note that BUTTON3 has inverted input
     newval = digitalRead ( BUTTON3 ) ;            // Test if below certain level
+    newval = HIGH + LOW - newval ;                // Reverse polarity
     if ( newval != oldval3 )                      // Change?
     {
       oldval3 = newval ;                          // Yes, remember value
@@ -1394,7 +1403,7 @@ void setup()
   SPI.begin() ;                                      // Init SPI bus
   EEPROM.begin ( EENUM * EESIZ ) ;                   // For station list in EEPROM
   // Print some memory and sketch info
-  dbgprint ( "Starting ESP Version 23-05-2016...  Free memory %d",
+  dbgprint ( "Starting ESP Version " VERSION "...  Free memory %d",
              system_get_free_heap_size() ) ;
   dbgprint ( "Sketch size %d, free size %d",
               ESP.getSketchSize(),
