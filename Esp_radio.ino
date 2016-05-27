@@ -100,9 +100,10 @@
 // 17-05-2016, ES: Analog input for commands, extra buttons if no TFT required.
 // 23-05-2016, ES: Fixed EEPROM size and number of entries, better dbgprint.
 // 26-05-2016, ES: Fixed BUTTON3 bug (no TFT)
+// 27-05-2016, ES: Fixed restore station at restart
 //
 // Define the version number:
-#define VERSION "26-may-2016"
+#define VERSION "27-may-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -850,7 +851,7 @@ void timer10sec()
 uint8_t anagetsw ( uint16_t v )
 {
   int      i ;                                    // Loop control
-  int      oldmindist = 3000 ;                    // Detection least difference
+  int      oldmindist = 1000 ;                    // Detection least difference
   int      newdist ;                              // New found difference
   uint8_t  sw = 0 ;                               // Number of switch detected (0 or 1..3)   
 
@@ -1336,8 +1337,7 @@ void restoreVolumeAndPreset()
 {
   char*  p ;                                         // Points into entry 0
 
-  p = get_eeprom_station ( 0 ) ;                     // Point to entry 0
-  p = p + EESIZ - 2 ;                                // Point to volume byte
+  p = get_eeprom_station ( 0 ) + EESIZ - 2 ;         // Point to entry 0 volume byte
   if ( *p > 60 && *p <= 100  )
   {
     reqvol = *p++ ;                                  // Restore saved volume
@@ -1384,6 +1384,10 @@ void setup()
   // Show some info about the SPIFFS
   SPIFFS.info ( fs_info ) ;
   dbgprint ( "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
+  if ( fs_info.totalBytes == 0 )
+  {
+    dbgprint ( "No SPIFFS found!  See documentation." ) ;
+  }
   dir = SPIFFS.openDir("/") ;                        // Show files in FS
   while ( dir.next() )                               // All files
   {
@@ -1427,6 +1431,7 @@ void setup()
   delay(10);
   streamtitle[0] = '\0' ;                            // No title yet
   newstation[0] = '\0' ;                             // No new station yet
+  analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;   // Assumed inactive analog input
   tckr.attach ( 0.100, timer100 ) ;                  // Every 100 msec
   listNetworks() ;                                   // Search for strongest WiFi network
   if ( numpwf == 1 )                                 // If there's only one pw-file...
