@@ -1402,6 +1402,7 @@ void setup()
       potSSID.replace ( ".pw", "" ) ;                // Convert into SSID 
     }
   }
+  WiFi.disconnect() ;                                // After restart the router could still keep the old connection
   WiFi.mode ( WIFI_STA ) ;                           // This ESP is a station
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
   SPI.begin() ;                                      // Init SPI bus
