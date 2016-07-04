@@ -20,7 +20,8 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
-- 27-may-2016, Fixed restore station at restart.
+- 04-jul-2016: WiFi.disconnect clears old connection now (thanks to Juppit)
+- 27-may-2016: Fixed restore station at restart.
 - 26-may-2016: Bugfix BUTTON3 handling (if no TFT).  Update pdf-document.
 - 23-may-2016: Bugfix EEPROM handling.
 - 17-may-2016: 3 button control over analog or digital input.
