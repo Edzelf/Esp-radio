@@ -101,9 +101,10 @@
 // 23-05-2016, ES: Fixed EEPROM size and number of entries, better dbgprint.
 // 26-05-2016, ES: Fixed BUTTON3 bug (no TFT)
 // 27-05-2016, ES: Fixed restore station at restart
+// 04-07-2016, ES: WiFi.disconnect clears old connection now (thanks to Juppit)
 //
 // Define the version number:
-#define VERSION "27-may-2016"
+#define VERSION "04-jul-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -1402,6 +1403,7 @@ void setup()
       potSSID.replace ( ".pw", "" ) ;                // Convert into SSID 
     }
   }
+  WiFi.disconnect() ;                                // After restart the router could still keep the old connection
   WiFi.mode ( WIFI_STA ) ;                           // This ESP is a station
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
   SPI.begin() ;                                      // Init SPI bus
@@ -1735,8 +1737,8 @@ void getpresets ( AsyncWebServerRequest *request )
 //******************************************************************************************
 //                             H A N D L E C M D                                           *
 //******************************************************************************************
-// Handling of the various commands from remote (case sensitive). All commands start with  *
-// "/command", followed by "?parameter=value".  Example: "/command?volume=50".             *
+// Handling of the various commands from remote (case sensitive). All commands have the    *
+// form "/?parameter=value".  Example: "/?volume=50".                                      *
 // The startpage will be returned if no arguments are given.                               *
 // Examples with available parameters:                                                     *
 //   volume     = 95                        // Percentage between 0 and 100                *
@@ -1757,7 +1759,7 @@ void getpresets ( AsyncWebServerRequest *request )
 // Multiple parameters are ignored.  An extra parameter may be "version=<random number>"   *
 // in order to prevent browsers like Edge and IE to use their cache.  This "version" is    *
 // ignored.                                                                                *
-// Example: "/command?upvolume=5&version=0.9775479450590543"                               *
+// Example: "/?upvolume=5&version=0.9775479450590543"                                      *
 //******************************************************************************************
 void handleCmd ( AsyncWebServerRequest *request )
 {
@@ -1769,7 +1771,6 @@ void handleCmd ( AsyncWebServerRequest *request )
   uint8_t            oldvol ;                         // Current volume
   uint8_t            newvol ;                         // Requested volume
   int                numargs ;                        // Number of arguments
-  int                i ;                              // Loop through the commands
   bool               relative ;                       // Relative argument (+ or -)
   uint32_t           t ;                              // For time test
   
@@ -1782,7 +1783,7 @@ void handleCmd ( AsyncWebServerRequest *request )
     return ;
   }
   strcpy ( reply, "Command(s) accepted" ) ;           // Default reply
-  p = request->getParam ( i ) ;                       // Get pointer to parameter structure
+  p = request->getParam ( 0 ) ;                       // Get pointer to parameter structure
   argument = p->name() ;                              // Get the argument
   argument.toLowerCase() ;                            // Force to lower case
   value = p->value() ;                                // Get the specified value
