@@ -164,7 +164,7 @@ extern "C"
 // Maximal length of the URL of a host
 #define MAXHOSTSIZ 128
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
-#define RINGBFSIZ 20000
+#define RINGBFSIZ 18000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
