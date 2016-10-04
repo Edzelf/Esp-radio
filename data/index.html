@@ -13,8 +13,10 @@
       <button onclick="httpGet('downvolume=2')">VOL-</button>
       <button onclick="httpGet('status=0')">STATUS</button>
       <button onclick="httpGet('test=0')">TEST</button>
+      <input type="button" onclick="location.href='/config.html';" value="Config" />
       <br><br>
       Preset:<select onChange="handlepreset(this)" id="selpres">
+        <option value="-1">Select a preset here</option>
       </select>
       <br><br>
       Treble gain:<select onChange="handletone(this)" id="HA">
@@ -115,7 +117,10 @@
 
       function handlepreset ( presctrl )
       {
-        httpGet ( "preset=" + presctrl.value ) ;
+        if ( presctrl.value >= 0 )
+        {
+          httpGet ( "preset=" + presctrl.value ) ;
+        }
       }
 
       function handletone ( tonectrl )
