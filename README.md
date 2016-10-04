@@ -1,12 +1,15 @@
 # Esp-radio
-Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.
+Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 04-oct-2016.
 
 Features:
 -	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
 -	Uses a minimal number of components; no Arduino required.
 -	Handles bitrates up to 320 kbps.
--	Has a preset list of maximal 63 favorite radio stations in EEPROM.
+-	Has a preset list of maximal 100 favorite radio stations in configuration file.
+- Configuration file can be edited through web interface.
 -	Can be controlled by a tablet or other device through a build-in webserver.
+- Can be controlled over MQTT.
+- Can be controlled over Serial Input.
 -	Optional one or three button control to skip to the next preset station.
 -	The strongest available WiFi network is automatically selected.
 -	Heavily commented source code, easy to add extra functionality.
@@ -16,10 +19,12 @@ Features:
 -	Software update over WiFi possible (OTA).
 -	Saves volume and preset station over restart.
 -	Bass and treble control.
+- Configuration also possible if no WiFi connection can be established.
 
 See documentation in pdf-file.
 
 Last changes:
+- 04-oct-2016: Version with MQTT and configuration in radio.ini file.
 - 04-jul-2016: WiFi.disconnect clears old connection now (thanks to Juppit)
 - 27-may-2016: Fixed restore station at restart.
 - 26-may-2016: Bugfix BUTTON3 handling (if no TFT).  Update pdf-document.
