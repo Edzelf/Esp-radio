@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+    <title>ESP-radio config</title>
+  </head>
+  <body style="color: rgb(0, 0, 0); background-color: rgb(204, 255, 255);" alink="#000099" link="#000099" vlink="#990099">
+    <div style="text-align: center;">
+      <b>ESP-radio configuration</b><br>
+      You can edit the configuration here.  Note that this will be effective on the next restart of the Esp-radio.
+      <br><br>
+      Available WiFi networks:<select id="ssid"></select>
+      <hr><br>
+      <textarea rows="25" cols="100" id="inifile">Space for inifile</textarea> 
+      <br><br>
+      <button onclick="fsav()">Save</button>
+      &nbsp;&nbsp;
+      <button onclick="httpGet('reset=1')">Restart</button>
+      <hr>
+      <form action="#" onsubmit="return uploadfile(this);" enctype="multipart/form-data" method="post" name="fileinfo">
+        Upload file:
+        <input type="file" name="file" size="40">
+        <input type="submit" value="Send">
+      </form>
+      <hr>
+      <input size="80" id="resultstr" value="Waiting for input....">
+      <br><br>
+    </div>
+    <script>
+      function httpGet ( theReq )
+      {
+        var theUrl = "/?" + theReq + "&version=" + Math.random() ;
+        var xhr = new XMLHttpRequest() ;
+        xhr.onreadystatechange = function() {
+          if ( xhr.readyState == XMLHttpRequest.DONE )
+          {
+            resultstr.value = xhr.responseText ;
+          }
+        }
+        xhr.open ( "GET", theUrl, false ) ;
+        xhr.send() ;
+      }
+
+
+      function fsav()
+      {
+        var theUrl = "/?save=0" ;
+        var xhr = new XMLHttpRequest() ;
+        xhr.onreadystatechange = function() {
+          if ( xhr.readyState == XMLHttpRequest.DONE )
+          {
+            resultstr.value = xhr.responseText ;
+          }
+        }
+        xhr.open ( "POST", theUrl, true ) ;
+        xhr.setRequestHeader ( "Content-type", "application/x-www-form-urlencoded" ) ;
+        xhr.send ( "content=" + inifile.value ) ;
+      }
+
+
+      function uploadfile ( theForm )
+      {
+        var oData, oReq ;
+
+        oData = new FormData ( fileinfo ) ;
+        oReq = new XMLHttpRequest() ;
+
+        oReq.open ( "POST", "/upload", true ) ;
+        oReq.onload = function ( oEvent ) {
+          if ( oReq.status == 200 )
+          {
+            resultstr.value = oReq.responseText ;
+          }
+          else
+          {
+            resultstr.value = "Error " + oReq.statusText ;
+          }
+        }
+        oReq.send ( oData ) ;
+        return false ;
+      }
+
+      // Fill configuration initially
+      // First the available WiFi networks
+      var i, select, opt, networks, params ;
+
+      select = document.getElementById("selnet") ;
+      var theUrl = "/?getnetworks=0" + "&version=" + Math.random() ;
+      var xhr = new XMLHttpRequest() ;
+      xhr.onreadystatechange = function() {
+        if ( xhr.readyState == XMLHttpRequest.DONE )
+        {
+          networks = xhr.responseText.split ( "|" ) ;
+          
+          for ( i = 0 ; i < ( networks.length - 1 ) ; i++ )
+          {
+            opt = document.createElement( "OPTION" ) ;
+            opt.value = i ;
+            opt.text = networks[i] ;
+            ssid.add( opt ) ;
+          }
+        }
+      }
+      xhr.open ( "GET", theUrl, false ) ;
+      xhr.send() ;
+
+      // Now get the configuration parameters from radio.ini
+      theUrl = "/radio.ini" ;
+      xhr.onreadystatechange = function() {
+        if ( xhr.readyState == XMLHttpRequest.DONE )
+        {
+          inifile.value = xhr.responseText ;
+        }
+      }
+      xhr.open ( "GET", theUrl, false ) ;
+      xhr.send() ;
+    </script>
+  </body>
+</html>
