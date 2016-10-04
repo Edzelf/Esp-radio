@@ -2204,6 +2204,7 @@ void handleCmd ( AsyncWebServerRequest *request )
   else if ( argument.startsWith ( "list" ) )          // List all presets?
   {
     getpresets ( request ) ;                          // Reply with station presets
+    return ;
   }
   else
   {
