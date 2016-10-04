@@ -8,17 +8,17 @@
 //  - SPI
 //  - Adafruit_GFX
 //  - TFT_ILI9163C
-//  - EEPROM
 //  - ESPAsyncTCP
 //  - ESPAsyncWebServer
 //  - FS
 //  - ArduinoOTA
+//  - AsyncMqttClient
+//
 // A library for the VS1053 (for ESP8266) is not available (or not easy to find).  Therefore
 // a class for this module is derived from the maniacbug library and integrated in this sketch.
 //
 // See http://www.internet-radio.com for suitable stations.  Add the stations of your choice
-// to the table "hostlist" in the global data secting further on.  This will be written to
-// EEPROM and can be modified through remote access through the web server.
+// to the .ini-file.
 //
 // Brief description of the program:
 // First a suitable WiFi network is found and a connection is made.
@@ -35,7 +35,7 @@
 // After de double CRLF is received, the server starts sending mp3- or Ogg-data.  For mp3, this
 // data may contain metadata (non mp3) after every "metaint" mp3 bytes.
 // The metadata is empty in most cases, but if any is available the content will be presented on the TFT.
-// Pushing the input button causes the player to select the next station in the hostlist (EEPROM).
+// Pushing the input button causes the player to select the next preset station present in the .ini file.
 //
 // The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
 // file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
@@ -62,7 +62,6 @@
 // D3       GPIO0    0 FLASH        -                   -                    Control button "Next station"
 // D4       GPIO2    2              pin 3 (D/C)         -                    (OR)Control button "Station 1"
 // D5       GPIO14  14 SCLK         pin 5 (CLK)         pin 5 SCK            -
-// D6       GPIO12  12 MISO         -                   pin 7 MISO           -
 // D7       GPIO13  13 MOSI         pin 4 (DIN)         pin 6 MOSI           -
 // D8       GPIO15  15              pin 2 (CS)          -                    (OR)Control button "Previous station"
 // D9       GPI03    3 RXD0         -                   -                    Reserved serial input
@@ -84,7 +83,6 @@
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
 // 05-04-2016, ES: Added commands through http server on port 80.
-// 06-04-2016, ES: Added list of stations in EEPROM.
 // 14-04-2016, ES: Added icon and switch preset on stream error.
 // 18-04-2016, ES: Added SPIFFS for webserver.
 // 19-04-2016, ES: Added ringbuffer.
@@ -98,18 +96,21 @@
 // 12-05-2016, ES: Added support for Ogg-encoder
 // 13-05-2016, ES: Better Ogg detection
 // 17-05-2016, ES: Analog input for commands, extra buttons if no TFT required.
-// 23-05-2016, ES: Fixed EEPROM size and number of entries, better dbgprint.
 // 26-05-2016, ES: Fixed BUTTON3 bug (no TFT)
 // 27-05-2016, ES: Fixed restore station at restart
 // 04-07-2016, ES: WiFi.disconnect clears old connection now (thanks to Juppit)
+// 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode
+// 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 //
 // Define the version number:
-#define VERSION "04-jul-2016"
+#define VERSION "04-oct-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+//#include <SyncClient.h> Seems to loose some bytes, resulting in sync error metadata
+#include <AsyncMqttClient.h>
 #include <SPI.h>
 #if defined ( USETFT )
 #include <Adafruit_GFX.h>
@@ -118,7 +119,6 @@
 #include <Ticker.h>
 #include <stdio.h>
 #include <string.h>
-#include <EEPROM.h>
 #include <FS.h>
 #include <ArduinoOTA.h>
 
@@ -161,39 +161,70 @@ extern "C"
 #define BUTTON1 2
 #define BUTTON2 0
 #define BUTTON3 15
-// Maximal number of presets in EEPROM and size of an entry, total space <= 4096 bytes
-#define EENUM 64
-#define EESIZ 64
+// Maximal length of the URL of a host
+#define MAXHOSTSIZ 128
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
 #define RINGBFSIZ 20000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
+// Name of the ini file
+#define INIFILENAME "/radio.ini"
+// Access point name if connection to WiFi network fails.  Also the hostname for WiFi and OTA.
+// Not that the password of an AP must be at least as long as 8 characters.
+#define APNAME "Esp-radio"
+
 //
 //******************************************************************************************
-// Forward declaration of methods                                                          *
+// Forward declaration of various functions                                                *
 //******************************************************************************************
-void  displayinfo ( const char *str, int pos, uint16_t color ) ;
-int   find_eeprom_station ( const char *search_entry ) ;
-void  put_empty_eeprom_station ( int index ) ;
-int   find_free_eeprom_entry();
-char* get_eeprom_station ( int index ) ;
-void  put_eeprom_station ( int index, const char *entry ) ;
-void  showstreamtitle() ;
-void  handlebyte ( uint8_t b ) ;
-void  handleFS ( AsyncWebServerRequest *request ) ;
-void  handleCmd ( AsyncWebServerRequest *request )  ;
-char* dbgprint( const char* format, ... ) ;
+void   displayinfo ( const char *str, int pos, uint16_t color ) ;
+void   showstreamtitle() ;
+void   handlebyte ( uint8_t b ) ;
+void   handleFS ( AsyncWebServerRequest *request ) ;
+void   handleCmd ( AsyncWebServerRequest *request )  ;
+void   handleFileUpload ( AsyncWebServerRequest *request, String filename,
+                          size_t index, uint8_t *data, size_t len, bool final ) ;
+char*  dbgprint( const char* format, ... ) ;
+char*  analyzeCmd ( const char* str ) ;
+char*  analyzeCmd ( const char* par, const char* val ) ;
+String chomp ( String str ) ;
+void publishIP() ;
+
 //
 //******************************************************************************************
 // Global data section.                                                                    *
 //******************************************************************************************
+// There is a block ini-data that contains some configuration.  This data can be saved in  *
+// the SPIFFS file announcer.ini by the webinterface.  On restart the new data will be     *
+// read from this file.  The file will not be saved automatically to prevent wear-out of   *
+// the flash.  Items in ini_block can be changed by commands from webserver/MQTT/Serial.   *
+//******************************************************************************************
+struct ini_struct
+{
+  char           mqttbroker[80] ;                          // The name of the MQTT broker server
+                                                           // Example: "mqtt.smallenburg.nl"
+  uint16_t       mqttport ;                                // Port, default 1883
+  char           mqttuser[16] ;                            // User for MQTT authentication
+  char           mqttpasswd[16] ;                          // Password for MQTT authentication
+  char           mqtttopic[16] ;                           // Topic to suscribe to
+  char           mqttpubtopic[16] ;                        // Topic to pubtop (IP will be published)
+  uint8_t        reqvol ;                                  // Requested volume
+  uint8_t        rtone[4] ;                                // Requested bass/treble settings
+  int8_t         newpreset ;                               // Requested preset
+  String         ssid ;                                    // SSID of WiFi network to connect to
+  String         passwd ;                                  // Password for WiFi network
+} ;
+
 enum datamode_t { INIT, HEADER, DATA, METADATA } ;         // State for datastream
+
 // Global variables
-String           ssid ;                                    // SSID of selected WiFi network
 int              DEBUG = 1 ;
+ini_struct       ini_block ;                               // Holds configurable data
 WiFiClient       mp3client ;                               // An instance of the mp3 client
 AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver
-String           cmd ;                                     // Command from remote
+AsyncMqttClient  mqttclient ;                              // Client for MQTT subscriber
+IPAddress        mqtt_server_IP ;                          // IP address of MQTT broker
+char             cmd[130] ;                                // Command from MQTT or Serial
 #if defined ( USETFT )
 TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
 #endif
@@ -206,49 +237,27 @@ char             metaline[200] ;                           // Readable line in m
 char             streamtitle[150] ;                        // Streamtitle from metadata
 int              bitrate ;                                 // Bitrate in kb/sec            
 int              metaint = 0 ;                             // Number of databytes between metadata
-int              currentpreset = 1 ;                       // Preset station to play (index in hostlist (EEPROM))
-int              newpreset = 1 ;                           // Requested preset
-char             host[EESIZ] ;                             // The hostname
+int8_t           currentpreset = -1 ;                      // Preset station playing
+char             host[MAXHOSTSIZ] ;                        // The hostname to connect to
+bool             hostreq ;                                 // Requst for new host
 char             sname[100] ;                              // Stationname
 int              port ;                                    // Port number for host
-char             newstation[EESIZ] ;                       // Station:port from remote
 int              delpreset = 0 ;                           // Preset to be deleted if nonzero
-uint8_t          reqvol = 80 ;                             // Requested volume
 uint8_t          savvolume ;                               // Saved volume
-uint8_t          rtone[4]    ;                             // Requested bass/treble settings
 bool             reqtone = false ;                         // new tone setting requested
 uint8_t          savpreset ;                               // Saved preset station
-bool             savreq = false ;                          // Reqwuest to save settings      
-char             currentstat[EESIZ] ;                      // Current station:port
+bool             muteflag = false ;                        // Mute output
 uint8_t*         ringbuf ;                                 // Ringbuffer for VS1053
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
 uint16_t         rbrindex = RINGBFSIZ - 1 ;                // Emptypointer in ringbuffer
 uint16_t         rcount = 0 ;                              // Number of bytes in ringbuffer
 uint16_t         analogsw[NUMANA] = { asw1, asw2, asw3 } ; // 3 levels of analog input
 uint16_t         analogrest ;                              // Rest value of analog input
-
-//
-// List of initial preset stations.
-// This will be copied to EEPROM if EEPROM is empty.  The first entry [0] is reserved
-// for detection of a not yet filled EEPROM.  The last 2 bytes for saved volume and preset.
-// In EEPROM, every entry takes EESIZ bytes.
-const char*      hostlist[] = {
-                     "Stations from remote control",  // Reserved entry
-                     "109.206.96.34:8100",            //  1 - NAXI LOVE RADIO, Belgrade, Serbia 128-kbps
-                     "us1.internet-radio.com:8180",   //  2 - Easy Hits Florida 128-kbps
-                     "us2.internet-radio.com:8050",   //  3 - CLASSIC ROCK MIA WWW.SHERADIO.COM
-                     "us1.internet-radio.com:15919",  //  4 - Magic Oldies Florida
-                     "us2.internet-radio.com:8132",   //  5 - Magic 60s Florida 60s Top 40 Classic Rock
-                     "us1.internet-radio.com:8105",   //  6 - Classic Rock Florida - SHE Radio
-                     "205.164.36.153:80",             //  7 - BOM PSYTRANCE (1.FM TM)  64-kbps
-                     "205.164.62.15:10032",           //  8 - 1.FM - GAIA, 64-kbps
-                     "skonto.ls.lv:8002/mp3",         //  9 - Skonto 128-kpbs
-                     "85.17.121.216:8468",            // 10 - RADIO LEHOVO 971 GREECE, 64-kbps
-                     "85.17.121.103:8800",            // 11 - STAR FM 88.8 Corfu Greece, 64-kbps
-                     "85.17.122.39:8530",             // 12 - stylfm.gr laiko, 64-kbps
-                     "94.23.66.155:8106",             // 13 - *ILR CHILL & GROOVE* 64-kbps
-                     "205.164.62.22:7012",            // 14 - 1.FM - ABSOLUTE TRANCE (EURO) RADIO 64-kbps
-                     NULL } ;
+bool             resetreq = false ;                        // Request to reset the ESP8266
+bool             NetworkFound ;                            // True if WiFi network connected
+String           networks ;                                // Found networks
+String           anetworks ;                               // Aceptable networks (present in .ini file)
+uint8_t          num_an ;                                  // Number of acceptable networks in .ini file
 
 //******************************************************************************************
 // End of lobal data section.                                                              *
@@ -655,7 +664,7 @@ inline uint16_t ringavail()
 //******************************************************************************************
 //                                P U T R I N G                                            *
 //******************************************************************************************
-bool putring ( uint8_t b )            // Put one byte in the ringbuffer
+void putring ( uint8_t b )                 // Put one byte in the ringbuffer
 {
   // No check on available space.  See ringspace()
   *(ringbuf+rbwindex) = b ;           // Put byte in ringbuffer
@@ -743,6 +752,7 @@ const char* getEncryptionType ( int thisType )
 //******************************************************************************************
 // List the available networks and select the strongest.                                   *
 // Acceptable networks are those who have a "SSID.pw" file in the SPIFFS.                  *
+// SSIDs of available networks will be saved for use in webinterface.                      * 
 //******************************************************************************************
 void listNetworks()
 {
@@ -750,9 +760,8 @@ void listNetworks()
   int         newstrength ;
   byte        encryption ;       // TKIP(WPA)=2, WEP=5, CCMP(WPA)=4, NONE=7, AUTO=8 
   const char* acceptable ;       // Netwerk is acceptable for connection
-  int         i, j ;
-  bool        found ;            // True if acceptable network found
-  String      path ;             // Full filespec to see if SSID is an acceptable one
+  int         i ;                // Loop control
+  String      sassid ;           // Search string in anetworks
   
   // scan for nearby networks:
   dbgprint ( "* Scan Networks *" ) ;
@@ -770,15 +779,15 @@ void listNetworks()
   for ( i = 0 ; i < numSsid ; i++ )
   {
     acceptable = "" ;                                    // Assume not acceptable
-    path = String ( "/" ) + WiFi.SSID ( i ) + String ( ".pw" ) ;
-    newstrength = WiFi.RSSI ( i ) ;
-    if ( found = SPIFFS.exists ( path ) )                // Is this SSID acceptable?
+    newstrength = WiFi.RSSI ( i ) ;                      // Get the signal strenght
+    sassid = WiFi.SSID ( i ) + String ( "|" ) ;          // For search string
+    if ( anetworks.indexOf ( sassid ) >= 0 )             // Is this SSID acceptable?
     {
       acceptable = "Acceptable" ;
       if ( newstrength > maxsig )                        // This is a better Wifi
       {
         maxsig = newstrength ;
-        ssid = WiFi.SSID ( i ) ;                         // Remember SSID name
+        ini_block.ssid = WiFi.SSID ( i ) ;               // Remember SSID name
       }
     }
     encryption = WiFi.encryptionType ( i ) ;
@@ -786,6 +795,8 @@ void listNetworks()
                i + 1, WiFi.SSID ( i ).c_str(), WiFi.RSSI ( i ),
                getEncryptionType ( encryption ),
                acceptable ) ;
+    // Remember this network for later use
+    networks += WiFi.SSID ( i ) + String ( "|" ) ;
   }
   dbgprint ( "--------------------------------------" ) ;
 }
@@ -817,7 +828,7 @@ void timer10sec()
     }
     if ( morethanonce >= 1 )                    // Happened more than once?
     {
-      newpreset++ ;                             // Yes, try next channel
+      ini_block.newpreset++ ;                   // Yes, try next channel
       dbgprint ( "Trying other station..." ) ;
     }
     morethanonce++ ;                            // Count the fails
@@ -835,11 +846,7 @@ void timer10sec()
   {
     t600 = 0 ;                                  // Yes, reset counter
     dbgprint ( "10 minutes over" ) ;
-    if ( currentpreset != savpreset || mp3.getVolume() != savvolume )
-    {
-      // Volume or preset has changed, set request to save them in EEPROM 
-      savreq = true ;
-    }  
+    publishIP() ;                               // Re-publish IP
   }
 }
 
@@ -880,9 +887,11 @@ uint8_t anagetsw ( uint16_t v )
 void timer100()
 {
   static int     count10sec = 0 ;                 // Counter for activatie 10 seconds process
-  static int     oldval1 = HIGH ;                 // Previous value of digital input button 1
   static int     oldval2 = HIGH ;                 // Previous value of digital input button 2
+  #if ( not ( defined ( USETFT ) ) )
+  static int     oldval1 = HIGH ;                 // Previous value of digital input button 1
   static int     oldval3 = HIGH ;                 // Previous value of digital input button 3
+  #endif
   int            newval ;                         // New value of digital input switch
   uint16_t       v ;                              // Analog input value 0..1023
   static uint8_t aoldval = 0 ;                    // Previous value of analog input switch
@@ -895,6 +904,17 @@ void timer100()
   }
   else
   {
+    newval = digitalRead ( BUTTON2 ) ;            // Test if below certain level
+    if ( newval != oldval2 )                      // Change?
+    {
+      oldval2 = newval ;                          // Yes, remember value
+      if ( newval == LOW )                        // Button pushed?
+      {
+        ini_block.newpreset = currentpreset + 1 ; // Yes, goto next preset station
+        dbgprint ( "Digital button 2 pushed" ) ;
+      }
+      return ;
+    }
     #if ( not ( defined ( USETFT ) ) )
     newval = digitalRead ( BUTTON1 ) ;            // Test if below certain level
     if ( newval != oldval1 )                      // Change?
@@ -902,24 +922,11 @@ void timer100()
       oldval1 = newval ;                          // Yes, remember value
       if ( newval == LOW )                        // Button pushed?
       {
-        newpreset = 1 ;                           // Yes, goto station preset 1
+        ini_block.newpreset = 0 ;                 // Yes, goto first preset station
         dbgprint ( "Digital button 1 pushed" ) ;
       }
       return ;
     }
-    #endif
-    newval = digitalRead ( BUTTON2 ) ;            // Test if below certain level
-    if ( newval != oldval2 )                      // Change?
-    {
-      oldval2 = newval ;                          // Yes, remember value
-      if ( newval == LOW )                        // Button pushed?
-      {
-        newpreset = currentpreset + 1 ;           // Yes, goto next preset station
-        dbgprint ( "Digital button 2 pushed" ) ;
-      }
-      return ;
-    }
-    #if ( not ( defined ( USETFT ) ) )
     // Note that BUTTON3 has inverted input
     newval = digitalRead ( BUTTON3 ) ;            // Test if below certain level
     newval = HIGH + LOW - newval ;                // Reverse polarity
@@ -928,7 +935,7 @@ void timer100()
       oldval3 = newval ;                          // Yes, remember value
       if ( newval == LOW )                        // Button pushed?
       {
-        newpreset = currentpreset - 1 ;           // Yes, goto previous preset station
+        ini_block.newpreset = currentpreset - 1 ; // Yes, goto previous preset station
         dbgprint ( "Digital button 3 pushed" ) ;
       }
       return ;
@@ -944,20 +951,21 @@ void timer100()
         dbgprint ( "Analog button %d pushed, v = %d", anewval, v ) ;
         if ( anewval == 1 )                       // Button 1?
         {
-          newpreset = 1 ;                         // Yes, goto preset 1
+          ini_block.newpreset = 0 ;               // Yes, goto first preset
         }
         else if ( anewval == 2 )                  // Button 2?
         {
-          newpreset = currentpreset + 1 ;         // Yes, goto next preset
+          ini_block.newpreset = currentpreset+1 ; // Yes, goto next preset
         }
         else if ( anewval == 3 )                  // Button 3?
         {
-          newpreset = currentpreset - 1 ;         // Yes, goto previous preset
+          ini_block.newpreset = currentpreset-1 ; // Yes, goto previous preset
         }
       }
     }
   }
 }
+
 
 //******************************************************************************************
 //                              D I S P L A Y I N F O                                      *
@@ -974,6 +982,7 @@ void displayinfo ( const char *str, int pos, uint16_t color )
 #endif
 }
 
+
 //******************************************************************************************
 //                        S H O W S T R E A M T I T L E                                    *
 //******************************************************************************************
@@ -986,17 +995,19 @@ void showstreamtitle ( char *ml )
 
   if ( strstr ( ml, "StreamTitle=" ) )
   {
-    p1 = metaline + 12 ;                    // Begin of artist and title
-    if ( p2 = strstr ( ml, ";" ) )          // Search for end of title
+    dbgprint ( "Streamtitle found, %d bytes", strlen ( ml ) ) ;
+    dbgprint ( ml ) ;
+    p1 = metaline + 12 ;                        // Begin of artist and title
+    if ( ( p2 = strstr ( ml, ";" ) ) )          // Search for end of title
     {
-      if ( *p1 == '\'' )                    // Surrounded by quotes?
+      if ( *p1 == '\'' )                        // Surrounded by quotes?
       {
         p1++ ;
         p2-- ;
       }
-      *p2 = '\0' ;                          // Strip the rest of the line
+      *p2 = '\0' ;                              // Strip the rest of the line
     }
-    if ( *p1 == ' ' )                       // Leading space?
+    if ( *p1 == ' ' )                           // Leading space?
     {
       p1++ ;
     }
@@ -1006,20 +1017,19 @@ void showstreamtitle ( char *ml )
   }
   else
   {
-    return ;                                // Metadata does not contain streamtitle
+    return ;                                    // Metadata does not contain streamtitle
   }
-  if ( p1 = strstr ( streamtitle, " - " ) ) // look for artist/title separator
+  if ( ( p1 = strstr ( streamtitle, " - " ) ) ) // look for artist/title separator
   {
-    *p1++ = '\n' ;                          // Found: replace 3 characters by newline
+    *p1++ = '\n' ;                              // Found: replace 3 characters by newline
     p2 = p1 + 2 ;
-    if ( *p2 == ' ' )                       // Leading space in title?
+    if ( *p2 == ' ' )                           // Leading space in title?
     {
       p2++ ;
     }
-    strcpy ( p1, p2 ) ;                     // Shift 2nd part of title 2 or 3 places
+    strcpy ( p1, p2 ) ;                         // Shift 2nd part of title 2 or 3 places
   }
-  dbgprint ( ml ) ;
-  displayinfo ( streamtitle, 20, CYAN ) ;   // Show title at position 20
+  displayinfo ( streamtitle, 20, CYAN ) ;       // Show title at position 20
 }
 
 
@@ -1030,13 +1040,11 @@ void showstreamtitle ( char *ml )
 //******************************************************************************************
 void connecttohost()
 {
-  int         i ;                                   // Index free EEPROM entry
-  char*       eepromentry ;                         // Pointer to copy of EEPROM entry 
   char*       p ;                                   // Pointer in hostname
   char*       pfs ;                                 // Pointer to formatted string
-  const char* extension = "/" ;                     // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
+  String      extension ;                           // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
   
-  dbgprint ( "Connect to new host" ) ;
+  dbgprint ( "Connect to new host %s", host ) ;
   if ( mp3client.connected() )
   {
     dbgprint ( "Stop client" ) ;                    // Stop conection to host
@@ -1044,52 +1052,28 @@ void connecttohost()
     mp3client.stop() ;
   }
   displayinfo ( "   ** Internet radio **", 0, WHITE ) ;
-  if ( newstation[0] )                              // New station specified by host?
-  {
-    if ( strstr ( newstation, ":" ) )               // Correct format?
-    {
-      i = find_eeprom_station ( newstation ) ;      // See if already in EEPROM
-      if ( i <= 0 )
-      {                                             // Not yet in EEPROM
-        i = find_free_eeprom_entry() ;              // Find free EEPROM entry (or entry 1)
-        put_eeprom_station ( i, newstation ) ;      // Store new station
-      }
-      newpreset = i ;                               // Select this one
-    }
-    newstation[0] = '\0' ;                          // Handled this one 
-  }
-  if ( newpreset < 1 || newpreset > EENUM )         // Requested preset within limits?
-  {
-    newpreset = 1 ;                                 // No, reset to the first preset
-  }
-  while ( true )                                    // Find entry in hostlist that contains a colon.
-  {                                                 // Will loop endlessly if empty list
-    eepromentry = get_eeprom_station ( newpreset ) ;
-    strcpy ( currentstat, eepromentry ) ;           // Save current station:port
-    if ( strstr ( eepromentry, ":" ) )              // Check format
-    {
-      break ;                                       // Okay, leave loop
-    }
-    if ( ++newpreset == EENUM )
-    {
-       newpreset = 1 ;                              // Wrap around if beyond highest preset
-    }
-  }
-  currentpreset = newpreset ;                       // This is the new preset
-  strcpy ( host, eepromentry ) ;                    // Select first station number
-  dbgprint ( "EEprom entry is %s", host ) ;         // The selected entry
+  port = 80 ;                                       // Default port
   p = strstr ( host, ":" ) ;                        // Search for separator
-  *p++ = '\0' ;                                     // Remove port from string and point to port
-  port = atoi ( p ) ;                               // Get portnumber as integer
-  // After the portnumber there may be an extension
+  if ( p )                                          // Portnumber available?
+  {
+    *p++ = '\0' ;                                   // Remove port from string and point to port
+     port = atoi ( p ) ;                            // Get portnumber as integer
+  }
+  else
+  {
+    p = host ;                                      // No port number, reset pointer to begin of host
+  }
+  // After the portnumber or host there may be an extension
+  extension = String ( "/" ) ;                      // Assume no extension
   p = strstr ( p, "/" ) ;                           // Search for begin of extension
   if ( p )                                          // Is there an extension?
   {
-    extension = p ;                                 // Yes, change the default
+    extension = String ( p ) ;                      // Yes, change the default
+    *p = '\0' ;                                     // Remove extension from host
     dbgprint ( "Slash in station" ) ;
   }
   pfs = dbgprint ( "Connect to preset %d, host %s on port %d, extension %s",
-                   currentpreset, host, port, extension ) ;
+                   currentpreset, host, port, extension.c_str() ) ;
   displayinfo ( pfs, 60, YELLOW ) ;                 // Show info at position 60
   delay ( 2000 ) ;                                  // Show for some time
   mp3client.flush() ;
@@ -1098,7 +1082,7 @@ void connecttohost()
     dbgprint ( "Connected to server" ) ;
     // This will send the request to the server. Request metadata.
     mp3client.print ( String ( "GET " ) +
-                      String ( extension ) +  
+                      extension +  
                       " HTTP/1.1\r\n" +
                       "Host: " + host + "\r\n" +
                       "Icy-MetaData:1\r\n" +
@@ -1109,245 +1093,36 @@ void connecttohost()
 
 
 //******************************************************************************************
-//                     F I N D _ F R E E _ E E P R O M _ E N T R Y                         *
-//******************************************************************************************
-// Find a free EEPROM entry.  If none is found: return entry 1.                            *
-//******************************************************************************************
-int find_free_eeprom_entry()
-{
-  int   i ;                                      // Entry number
-  char* p ;                                      // Pointer to entry
-
-  for ( i = 1 ; i < EENUM ; i++ )
-  {
-    p = get_eeprom_station ( i ) ;               // Get next entry
-    if ( *p == '\0' )                            // Is this one empty?
-    {
-      return i ;                                 // Yes, give index to caller
-    }
-  }
-  return 1 ;                                     // No free entry, use the first
-}
-
-
-//******************************************************************************************
-//                          G E T _ E E P R O M _ S T A T I O N                            *
-//******************************************************************************************
-// Get a station from EEPROM.  parameter index is 0..63.                                   *
-// A pointer to the station will be returned.                                              *
-//******************************************************************************************
-char* get_eeprom_station ( int index )
-{
-  static char entry[EESIZ] ;            // One station from EEPROM
-  int         i ;                       // index in entry
-  int         address ;                 // Address in EEPROM 
-
-  address = index * EESIZ ;             // Compute address in EEPROM
-  for ( i = 0 ; i < EESIZ ; i++ )
-  {
-    entry[i] = EEPROM.read ( address++ ) ;
-  }
-  return entry ;                       // Geef pointer terug
-}
-
-
-//******************************************************************************************
-//                          P U T _ E E P R O M _ S T A T I O N                            *
-//******************************************************************************************
-// Put a station into EEPROM.  1st parameter index is 0..63.                               *
-// Note that 64 characters are copied.  The string "entry" may be shorter in reality, but  *
-// that is generally no problem......                                                      *
-//******************************************************************************************
-void put_eeprom_station ( int index, const char *entry )
-{
-  int         i ;                            // index in entry
-  int         address ;                      // Address in EEPROM
-
-  address = index * EESIZ ;                  // Compute address in EEPROM
-  for ( i = 0 ; i < EESIZ ; i++ )
-  {
-    EEPROM.write ( address++, entry[i] ) ; // Copy 1 character
-  }
-  yield() ;
-  EEPROM.commit() ;                          // Commit the write
-}
-
-
-//******************************************************************************************
-//                          F I N D _ E E P R O M _ S T A T I O N                          *
-//******************************************************************************************
-// Search for a station in EEPROM.  Return the index or 0 if not found.                    *
-//******************************************************************************************
-int find_eeprom_station ( const char *search_entry )
-{
-  char*       p ;                                 // Pointer to entry
-  int         entnum ;                            // Entry number
-  int         i ;                                 // index in entry
-  int         address ;                           // Address in EEPROM 
-
-  for ( entnum = 1 ; entnum < EENUM ; entnum++ )
-  {
-    p = get_eeprom_station ( entnum ) ;           // Get next entry
-    if ( strstr ( p, search_entry ) )             // Matches entry?
-    {
-      return entnum ;                             // Yes, return index
-    }
-  }
-  return 0 ;                                      // No match found
-}
-
-
-//******************************************************************************************
-//                  P U T _ E M P T Y _ E E P R O M _ S T A T I O N                        *
-//******************************************************************************************
-// Put an empty station into EEPROM.  parameter index is 1..63.                            *
-//******************************************************************************************
-void put_empty_eeprom_station ( int index )
-{
-  int         i ;                      // index in entry
-  int         address ;                // Address in EEPROM 
-
-  address = index * EESIZ ;            // Compute address in EEPROM
-  for ( i = 0 ; i < EESIZ ; i++ )
-  {
-    EEPROM.write ( address++, 0 ) ;
-  }
-  yield() ;
-  EEPROM.commit() ;                    // Commit the write
-}
-
-
-//******************************************************************************************
-//                               F I L L _ E E P R O M                                     *
-//******************************************************************************************
-// Setup EEPROM if empty.                                                                  *
-//******************************************************************************************
-void fill_eeprom()
-{
-  int  i ;                                           // Entry number
-  int  j ;                                           // Index in hostlist
-  char *p ;                                          // Pointer to copy of EEPROM entry
-  int  fillflag ;                                    // Count of non-empty lines in EEPROM
-  
-  // See if first entry in EEPROM makes sense
-  p = get_eeprom_station ( 0 ) ;                     // Get reserved entry to check status
-  if ( strcmp ( p, hostlist[0] ) == 0 )              // Starts with a familiar pattern?
-  {
-    // Yes, Check entry and show the list for debugging purposes
-    dbgprint ( "EEPROM is already filled. Available stations:" ) ;
-    for ( i = 0 ; i < EENUM ; i++ )                  // List all for entries
-    {
-      p = get_eeprom_station ( i ) ;                 // Get next entry
-      if ( *p == 0xFF )                              // FF means not yet initialized
-      {
-        put_empty_eeprom_station ( i ) ;             // Fill with a zero pattern
-      }
-      else
-      {
-        if ( *p )                                    // Check if filled with a station
-        {
-          fillflag = i ;                             // > 0 if at least one line is filled
-          p = get_eeprom_station ( i ) ;
-          dbgprint ( "%02d - %s", i, p ) ;
-        }
-      }
-    }
-    if ( fillflag )
-    {
-      return ;                                       // EEPROM already filled
-    }
-  }    
-  // EEPROM is virgin or empty.  Fill it with default stations.
-  dbgprint ( "EEPROM is empty.  Will be filled now." ) ;
-  delay ( 300 ) ;
-  j = 0 ;                                            // Point to first line in hostlist
-  for ( i = 0 ; i < EENUM ; i++ )                    // Space for all entries
-  {
-    if ( hostlist[j] )                               // At last host in the list?
-    { 
-      put_eeprom_station ( i, hostlist[j++] ) ;      // Copy station
-    }
-    else
-    {
-      put_empty_eeprom_station ( i ) ;              // Fill with a zero pattern
-    }
-    yield() ;
-  }
-}
-
-
-//******************************************************************************************
 //                               C O N N E C T W I F I                                     *
 //******************************************************************************************
 // Connect to WiFi using passwords available in the SPIFFS.                                *
+// If connection fails, an AP is created and the function returns false.                   *
 //******************************************************************************************
-void connectwifi()
+bool connectwifi()
 {
-  String path ;                                        // Full file spec
-  String pw ;                                          // Password from file
-  File   pwfile ;                                      // File containing password for WiFi
-  char*  pfs ;                                         // Poiter to formatted string
+  char*  pfs ;                                         // Pointer to formatted string
   
-  path = String ( "/" )  + ssid + String ( ".pw" ) ;   // Form full path
-  pwfile = SPIFFS.open ( path, "r" ) ;                 // File name equal to SSID
-  pw = pwfile.readStringUntil ( '\n' ) ;               // Read password as a string
-  pw.trim() ;                                          // Remove CR                              
-  WiFi.begin ( ssid.c_str(), pw.c_str() ) ;            // Connect to selected SSID
-  dbgprint ( "Try WiFi %s", ssid.c_str() ) ;           // Message to show during WiFi connect
+  WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
+  WiFi.softAPdisconnect(true) ;
+  WiFi.begin ( ini_block.ssid.c_str(),
+               ini_block.passwd.c_str() ) ;            // Connect to selected SSID
+  dbgprint ( "Try WiFi %s", ini_block.ssid.c_str() ) ; // Message to show during WiFi connect
   if (  WiFi.waitForConnectResult() != WL_CONNECTED )  // Try to connect
   {
-    dbgprint ( "WiFi Failed!" ) ;
-    return;
+    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", APNAME, APNAME ) ;
+    //WiFi.disconnect() ;                              // After restart the router could still keep the old connection
+    //WiFi.softAPdisconnect(true) ;
+    WiFi.softAP ( APNAME, APNAME ) ;                   // This ESP will be an AP
+    delay ( 5000 ) ;
+    pfs = dbgprint ( "IP = 192.168.4.1" ) ;            // Address if AP
+    return false ;
   }
   pfs = dbgprint ( "IP = %d.%d.%d.%d",
                    WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
   #if defined ( USETFT )
   tft.println ( pfs ) ;
   #endif
-}
-
-
-//******************************************************************************************
-//                      S A V E V O L U M E A N D P R E S E T                              *
-//******************************************************************************************
-// Save current volume and preset in the first entry of the EEPROM.                        *
-// This info is kept in the last 2 bytes of the entry.                                     *                                                                  *
-//******************************************************************************************
-void saveVolumeAndPreset()
-{
-  char*  p ;                                         // Points into entry 0
-
-  savvolume = mp3.getVolume() ;                      // Current volume
-  savpreset = currentpreset ;                        // Current preset station
-  p = get_eeprom_station ( 0 ) ;                     // Point to entry 0
-  p[EESIZ-2] = savvolume ;                           // Save volume
-  p[EESIZ-1] = currentpreset ;                       // Save preset station
-  put_eeprom_station ( 0, p ) ;                      // Put in EEPROM
-  dbgprint ( "Settings saved: volume %d, preset %d",
-             savvolume, savpreset ) ;
-}
-
-
-//******************************************************************************************
-//                   R E S T O R E V O L U M E A N D P R E S E T                           *
-//******************************************************************************************
-// See if there is a saved volume and preset in the first entry of the EEPROM.             *
-// This info is kept in the last 2 bytes of the entry.                                     *                                                                  *
-//******************************************************************************************
-void restoreVolumeAndPreset()
-{
-  char*  p ;                                         // Points into entry 0
-
-  p = get_eeprom_station ( 0 ) + EESIZ - 2 ;         // Point to entry 0 volume byte
-  if ( *p > 60 && *p <= 100  )
-  {
-    reqvol = *p++ ;                                  // Restore saved volume
-    newpreset = *p ;                                 // Restore saved preset
-    savvolume = reqvol ;                             // Saved volume
-    savpreset = newpreset ;                          // Saved preset station
-    dbgprint ( "Restored settings: volume %d, preset %d",
-               reqvol, newpreset ) ;
-  }
+  return true ;
 }
 
 
@@ -1363,25 +1138,307 @@ void otastart()
 
 
 //******************************************************************************************
+//                          R E A D H O S T F R O M I N I F I L E                          *
+//******************************************************************************************
+// Read the mp3 host from the ini-file specified by the parameter.                         *
+// The host will be returned.                                                              *
+//******************************************************************************************
+char* readhostfrominifile ( int8_t preset )
+{
+  String      path ;                                   // Full file spec as string
+  File        inifile ;                                // File containing URL with mp3
+  char        tkey[10] ;                               // Key as an array of chars
+  String      line ;                                   // Input line from .ini file
+  String      linelc ;                                 // Same, but lowercase
+  int         inx ;                                    // Position within string
+  static char newhost[MAXHOSTSIZ] ;                    // Found host name
+  char*       res = NULL ;                             // Assume not found                                    
+
+  path = String ( INIFILENAME ) ;                      // Form full path
+  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  if ( inifile )
+  {
+    sprintf ( tkey, "preset_%02d", preset ) ;           // Form the search key
+    while ( inifile.available() )
+    {
+      line = inifile.readStringUntil ( '\n' ) ;        // Read next line
+      linelc = line ;                                  // Copy for lowercase
+      linelc.toLowerCase() ;                           // Set to lowercase
+      if ( linelc.startsWith ( tkey ) )                // Found the key?
+      {
+        inx = line.indexOf ( "=" ) ;                   // Get position of "="
+        if ( inx > 0 )                                 // Equal sign present?
+        {
+          line.remove ( 0, inx + 1 ) ;                 // Yes, remove key
+          line = chomp ( line ) ;                      // Remove garbage
+          strncpy ( newhost, line.c_str(),             // Save result
+                    sizeof(newhost) ) ; 
+          res = newhost ;                              // Return new host
+          break ;                                      // End the while loop
+        }
+      }
+    }
+    inifile.close() ;                                  // Close the file
+  }
+  else
+  {
+    dbgprint ( "File %s not found, please create one!", INIFILENAME ) ;
+  }
+  return res ;
+}
+
+
+//******************************************************************************************
+//                               R E A D I N I F I L E                                     *
+//******************************************************************************************
+// Read the .ini file and interpret the commands.                                          *
+//******************************************************************************************
+void readinifile()
+{
+  String      path ;                                   // Full file spec as string
+  File        inifile ;                                // File containing URL with mp3
+  String      line ;                                   // Input line from .ini file
+  
+  path = String ( INIFILENAME ) ;                      // Form full path
+  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  if ( inifile )
+  {
+    while ( inifile.available() )
+    {
+      line = inifile.readStringUntil ( '\n' ) ;        // Read next line
+      analyzeCmd ( line.c_str() ) ;
+    }
+    inifile.close() ;                                  // Close the file
+  }
+  else
+  {
+    dbgprint ( "File %s not found, use save command to create one!", INIFILENAME ) ;
+  }
+}
+
+
+//******************************************************************************************
+//                            P U B L I S H I P                                            * 
+//******************************************************************************************
+// Publish IP to MQTT broker.                                                              *
+//******************************************************************************************
+void publishIP()
+{
+  char     ip[20] ;                             // Hold IP as string
+  
+  if ( strlen ( ini_block.mqttpubtopic ) )      // Topic to publish?
+  {
+    // Publish IP-adress.  qos=1, retain=true
+    sprintf ( ip, "%d.%d.%d.%d",
+              WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
+    mqttclient.publish ( ini_block.mqttpubtopic, 1, true, ip ) ;
+    dbgprint ( "Publishing IP %s to topic %s",
+               ip, ini_block.mqttpubtopic ) ;
+  }
+}
+
+
+//******************************************************************************************
+//                            O N M Q T T C O N N E C T                                    * 
+//******************************************************************************************
+// Will be called on connection to the broker.  Subscribe to our topic and publish a topic.*
+//******************************************************************************************
+void onMqttConnect()
+{
+  uint16_t packetIdSub ;
+  
+  dbgprint ( "MQTT Connected to the broker %s", ini_block.mqttbroker ) ;
+  packetIdSub = mqttclient.subscribe ( ini_block.mqtttopic, 2 ) ;
+  dbgprint ( "Subscribing to %s at QoS 2, packetId = %d ",
+             ini_block.mqtttopic,
+             packetIdSub ) ;
+  publishIP() ;                                     // Topic to publish: IP
+}
+
+
+//******************************************************************************************
+//                      O N M Q T T D I S C O N N E C T                                    *
+//******************************************************************************************
+// Will be called on disconnect.                                                           *
+//******************************************************************************************
+void onMqttDisconnect ( AsyncMqttClientDisconnectReason reason )
+{
+  dbgprint ( "MQTT Disconnected from the broker, reason %d,reconnecting...",
+             reason ) ;
+  mqttclient.connect() ;
+}
+
+
+//******************************************************************************************
+//                      O N M Q T T S U B S C R I B E                                      *
+//******************************************************************************************
+// Will be called after a successful subscribe.                                            *
+//******************************************************************************************
+void onMqttSubscribe ( uint16_t packetId, uint8_t qos )
+{
+  dbgprint ( "MQTT Subscribe acknowledged, packetId = %d, QoS = %d",
+             packetId, qos ) ;
+}
+
+
+//******************************************************************************************
+//                              O N M Q T T U N S U B S C R I B E                          *
+//******************************************************************************************
+// Will be executed if this program unsubscribes from a topic.                             *
+// Not used at the moment.                                                                 *
+//******************************************************************************************
+void onMqttUnsubscribe ( uint16_t packetId )
+{
+  dbgprint ( "MQTT Unsubscribe acknowledged, packetId = %d",
+             packetId ) ;
+}
+
+
+//******************************************************************************************
+//                            O N M Q T T M E S S A G E                                    *
+//******************************************************************************************
+// Executed when a subscribed message is received.                                         *
+// Note that message is not delimited by a '\0'.                                           *
+//******************************************************************************************
+void onMqttMessage ( char* topic, char* payload, AsyncMqttClientMessageProperties properties,
+                     size_t len, size_t index, size_t total )
+{
+  char*  reply ;                                    // Result from analyzeCmd
+  
+  // Available properties.qos, properties.dup, properties.retain
+  if ( len >= sizeof(cmd) )                         // Message may not be too long 
+  {
+    len = sizeof(cmd) - 1 ;
+  }
+  strncpy ( cmd, payload, len ) ;                   // Make copy of message
+  cmd[len] = '\0' ;                                 // Take care of delimeter
+  dbgprint ( "MQTT message arrived [%s], lenght = %d, %s", topic, len, cmd ) ;
+  reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
+  dbgprint ( reply ) ;                              // Result for debugging
+}
+
+
+//******************************************************************************************
+//                             O N M Q T T P U B L I S H                                   *
+//******************************************************************************************
+// Will be executed if a message is published by this program.                             *
+// Not used at the moment.                                                                 *
+//******************************************************************************************
+void onMqttPublish ( uint16_t packetId )
+{
+  dbgprint ( "MQTT Publish acknowledged, packetId = %d",
+             packetId ) ;
+}
+
+
+//******************************************************************************************
+//                             S C A N S E R I A L                                         *
+//******************************************************************************************
+// Listen to commands on the Serial inputline.                                             *
+//******************************************************************************************
+void scanserial()
+{
+  static String serialcmd ;                      // Command from Serial input
+  char          c ;                              // Input character
+  char*         reply ;                          // Reply string froma analyzeCmd
+  uint16_t      len ;                            // Length of input string
+
+  while ( Serial.available() )                   // Any input seen?
+  {
+    c =  (char)Serial.read() ;                   // Yes, read the next input character
+    Serial.write ( c ) ;                         // Echo
+    len = serialcmd.length() ;                   // Get the length of the current string
+    if ( ( c == '\n' ) || ( c == '\r' ) )
+    {
+      if ( len )
+      {
+        strncpy ( cmd, serialcmd.c_str(), sizeof(cmd) ) ;
+        reply = analyzeCmd ( cmd) ;              // Analyze command and handle it
+        dbgprint ( reply ) ;                     // Result for debugging
+        serialcmd = "" ;                         // Prepare for new command
+      }
+    }
+    if ( c >= ' ' )                              // Only accept useful characters
+    {
+      serialcmd += c ;                           // Add to the command
+    }
+    if ( len >= ( sizeof(cmd) - 2 )  )           // Check for excessive length
+    {
+      serialcmd = "" ;                           // Too long, reset
+    }
+  }
+}
+
+
+//******************************************************************************************
+//                                   M K _ L S A N                                         *
+//******************************************************************************************
+// Make al list of acceptable networks in .ini file.                                       *
+// The result will be stored in anetworks like "|SSID1|SSID2|......|SSIDN|".               *
+// The number of acceptable networks will be stored in num_an.                             *
+//******************************************************************************************
+void  mk_lsan()
+{
+  String      path ;                                   // Full file spec as string
+  File        inifile ;                                // File containing URL with mp3
+  String      line ;                                   // Input line from .ini file
+  String      ssid ;                                   // SSID in line
+  int         inx ;                                    // Place of "/"
+  
+  num_an = 0 ;                                         // Count acceptable networks
+  anetworks = "|" ;                                    // Initial value
+  path = String ( INIFILENAME ) ;                      // Form full path
+  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  if ( inifile )
+  {
+    while ( inifile.available() )
+    {
+      line = inifile.readStringUntil ( '\n' ) ;        // Read next line
+      ssid = line ;                                    // Copy holds original upper/lower case 
+      line.toLowerCase() ;                             // Case insensitive
+      if ( line.startsWith ( "wifi" ) )                // Line with WiFi spec?
+      {
+        inx = line.indexOf ( "/" ) ;                   // Find separator between ssid and password
+        if ( inx > 0 )                                 // Separator found?
+        {
+          ssid = ssid.substring ( 5, inx ) ;           // Line holds SSID now
+          dbgprint ( "Added SSID %s to acceptable networks",
+                     ssid.c_str() ) ;
+          anetworks += ssid ;                          // Add to list
+          anetworks += "|" ;                           // Separator 
+          num_an++ ;                                   // Count number oif acceptable networks
+        }
+      }
+    }
+    inifile.close() ;                                  // Close the file
+  }
+  else
+  {
+    dbgprint ( "File %s not found!", INIFILENAME ) ;   // No .ini file
+  }
+}
+
+
+
+//******************************************************************************************
 //                                   S E T U P                                             *
 //******************************************************************************************
 // Setup for the program.                                                                  *
 //******************************************************************************************
 void setup()
 {
-  FSInfo      fs_info ;                              // Info about SPIFFS
-  Dir         dir ;                                  // Directory struct for SPIFFS
-  File        f ;                                    // Filehandle
-  String      filename ;                             // Name of file found in SPIFFS
-  String      potSSID ;                              // Potential SSID if only 1 one password file
-  int         i ;                                    // Loop control
-  int         numpwf = 0 ;                           // Number of password files 
+  FSInfo      fs_info ;                                // Info about SPIFFS
+  Dir         dir ;                                    // Directory struct for SPIFFS
+  File        f ;                                      // Filehandle
+  String      filename ;                               // Name of file found in SPIFFS
 
-  Serial.begin ( 115200 ) ;                          // For debug
+  Serial.begin ( 115200 ) ;                            // For debug
   Serial.println() ;
-  system_update_cpu_freq ( 160 ) ;                   // Set to 80/160 MHz
-  ringbuf = (uint8_t *) malloc ( RINGBFSIZ ) ;       // Create ring buffer
-  SPIFFS.begin() ;                                   // Enable file system
+  system_update_cpu_freq ( 160 ) ;                     // Set to 80/160 MHz
+  ringbuf = (uint8_t *) malloc ( RINGBFSIZ ) ;         // Create ring buffer
+  memset ( &ini_block, 0, sizeof(ini_block) ) ;        // Init ini_block
+  ini_block.mqttport = 1883 ;                          // Default port for MQTT
+  SPIFFS.begin() ;                                     // Enable file system
   // Show some info about the SPIFFS
   SPIFFS.info ( fs_info ) ;
   dbgprint ( "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
@@ -1389,70 +1446,89 @@ void setup()
   {
     dbgprint ( "No SPIFFS found!  See documentation." ) ;
   }
-  dir = SPIFFS.openDir("/") ;                        // Show files in FS
-  while ( dir.next() )                               // All files
+  dir = SPIFFS.openDir("/") ;                          // Show files in FS
+  while ( dir.next() )                                 // All files
   {
     f = dir.openFile ( "r" ) ;
     filename = dir.fileName() ;
-    dbgprint ( "%-32s - %6d",                        // Show name and size
+    dbgprint ( "%-32s - %6d",                          // Show name and size
                filename.c_str(), f.size() ) ;
-    if ( filename.endsWith ( ".pw" ) )               // If this a password file?
-    {
-      numpwf++ ;                                     // Yes, count number password files
-      potSSID = filename.substring ( 1 ) ;           // Save filename (without starting "/") of potential SSID 
-      potSSID.replace ( ".pw", "" ) ;                // Convert into SSID 
-    }
   }
-  WiFi.disconnect() ;                                // After restart the router could still keep the old connection
-  WiFi.mode ( WIFI_STA ) ;                           // This ESP is a station
+  mk_lsan() ;                                          // Make al list of acceptable networks in ini file.
+  listNetworks() ;                                     // Search for WiFi networks
+  readinifile() ;                                      // Read .ini file
+  WiFi.persistent ( false ) ;                          // Do not save SSID and password
+  WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
+  WiFi.mode ( WIFI_STA ) ;                             // This ESP is a station
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
-  SPI.begin() ;                                      // Init SPI bus
-  EEPROM.begin ( EENUM * EESIZ ) ;                   // For station list in EEPROM
+  SPI.begin() ;                                        // Init SPI bus
   // Print some memory and sketch info
   dbgprint ( "Starting ESP Version " VERSION "...  Free memory %d",
              system_get_free_heap_size() ) ;
   dbgprint ( "Sketch size %d, free size %d",
               ESP.getSketchSize(),
               ESP.getFreeSketchSpace() ) ;
-  fill_eeprom() ;                                    // Fill if empty
-  restoreVolumeAndPreset() ;                         // Restore saved settings
-  pinMode ( BUTTON2, INPUT_PULLUP ) ;                // Input for control button 2
-  mp3.begin() ;                                      // Initialize VS1053 player
+  pinMode ( BUTTON2, INPUT_PULLUP ) ;                  // Input for control button 2
+  mp3.begin() ;                                        // Initialize VS1053 player
   # if defined ( USETFT )
-  tft.begin() ;                                      // Init TFT interface
-  tft.fillRect ( 0, 0, 160, 128, BLACK ) ;           // Clear screen does not work when rotated
-  tft.setRotation ( 3 ) ;                            // Use landscape format
-  tft.clearScreen() ;                                // Clear screen
-  tft.setTextSize ( 1 ) ;                            // Small character font
+  tft.begin() ;                                        // Init TFT interface
+  tft.fillRect ( 0, 0, 160, 128, BLACK ) ;             // Clear screen does not work when rotated
+  tft.setRotation ( 3 ) ;                              // Use landscape format
+  tft.clearScreen() ;                                  // Clear screen
+  tft.setTextSize ( 1 ) ;                              // Small character font
   tft.setTextColor ( WHITE ) ;  
   tft.println ( "Starting" ) ;
   #else
-  pinMode ( BUTTON1, INPUT_PULLUP ) ;                // Input for control button 1
-  pinMode ( BUTTON3, INPUT_PULLUP ) ;                // Input for control button 3
+  pinMode ( BUTTON1, INPUT_PULLUP ) ;                  // Input for control button 1
+  pinMode ( BUTTON3, INPUT_PULLUP ) ;                  // Input for control button 3
   #endif
   delay(10);
-  streamtitle[0] = '\0' ;                            // No title yet
-  newstation[0] = '\0' ;                             // No new station yet
-  analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;   // Assumed inactive analog input
-  tckr.attach ( 0.100, timer100 ) ;                  // Every 100 msec
-  listNetworks() ;                                   // Search for strongest WiFi network
-  if ( numpwf == 1 )                                 // If there's only one pw-file...
-  {
-    dbgprint ( "Single (hidden) SSID found" ) ;
-    ssid = potSSID ;                                 // Use this SSID (it may be hidden)
-  }
-  dbgprint ( "Selected network: %-25s", ssid.c_str() ) ;
-  connectwifi() ;                                    // Connect to WiFi network
+  streamtitle[0] = '\0' ;                              // No title yet
+  hostreq = false ;                                    // No host yet
+  analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
+  tckr.attach ( 0.100, timer100 ) ;                    // Every 100 msec
+  dbgprint ( "Selected network: %-25s", ini_block.ssid.c_str() ) ;
+  NetworkFound = connectwifi() ;                       // Connect to WiFi network
   dbgprint ( "Start server for commands" ) ;
-  cmdserver.on ( "/", handleCmd ) ;                  // Handle startpage
-  cmdserver.onNotFound ( handleFS ) ;                // Handle file from FS
+  cmdserver.on ( "/", handleCmd ) ;                    // Handle startpage
+  cmdserver.onNotFound ( handleFS ) ;                  // Handle file from FS
+  cmdserver.onFileUpload ( handleFileUpload ) ;        // Handle file uploads
   cmdserver.begin() ;
-  delay ( 1000 ) ;                                   // Show IP for a wile
-  connecttohost() ;                                  // Connect to the selected host
-  ArduinoOTA.setHostname ( "ESP-radio" ) ;           // Set the hostname
+  if ( NetworkFound )                                  // OTA and MQTT only if Wifi network found
+  {
+    ArduinoOTA.setHostname ( (char*)APNAME ) ;         // Set the hostname
+    ArduinoOTA.onStart ( otastart ) ;
+    ArduinoOTA.begin() ;                               // Allow update over the air
+    if ( strlen ( ini_block.mqttbroker ) )             // Broker specified?
+    {
+      // Initialize the MQTT client
+      WiFi.hostByName ( ini_block.mqttbroker,
+                        mqtt_server_IP ) ;             // Lookup IP of MQTT server 
+      mqttclient.onConnect ( onMqttConnect ) ;
+      mqttclient.onDisconnect ( onMqttDisconnect ) ;
+      mqttclient.onSubscribe ( onMqttSubscribe ) ;
+      mqttclient.onUnsubscribe ( onMqttUnsubscribe ) ;
+      mqttclient.onMessage ( onMqttMessage ) ;
+      mqttclient.onPublish ( onMqttPublish ) ;
+      mqttclient.setServer ( mqtt_server_IP,           // Specify the broker
+                             ini_block.mqttport ) ;    // And the port
+      mqttclient.setCredentials ( ini_block.mqttuser,
+                                  ini_block.mqttpasswd ) ;
+      mqttclient.setClientId ( "Esp-radio" ) ;
+      dbgprint ( "Connecting to MQTT %s, port %d, user %s, password %s...",
+                 ini_block.mqttbroker,
+                 ini_block.mqttport,
+                 ini_block.mqttuser,
+                 ini_block.mqttpasswd ) ;
+      mqttclient.connect();
+    }
+  }
+
+  delay ( 1000 ) ;                                     // Show IP for a wile
+  ArduinoOTA.setHostname ( "ESP-radio" ) ;             // Set the hostname
   ArduinoOTA.onStart ( otastart ) ;
-  ArduinoOTA.begin() ;                               // Allow update over the air
-  analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;   // Assumed inactive analog input
+  ArduinoOTA.begin() ;                                 // Allow update over the air
+  analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
 }
 
 
@@ -1470,44 +1546,62 @@ void setup()
 //******************************************************************************************
 void loop()
 {
+  char*  p ;                                          // Temporary pointer to string 
+  
   // Try to keep the ringbuffer filled up by adding as much bytes as possible 
   while ( ringspace() && mp3client.available() )
   {
-    putring ( mp3client.read() ) ;                // Yes, save one byte in ringbuffer
+    putring ( mp3client.read() ) ;                    // Yes, save one byte in ringbuffer
   }
   yield() ;
-  while ( mp3.data_request() && ringavail() )     // Try to keep VS1053 filled
+  while ( mp3.data_request() && ringavail() )         // Try to keep VS1053 filled
   {
-    handlebyte ( getring() ) ;                    // Yes, handle it
+    handlebyte ( getring() ) ;                        // Yes, handle it
   }
-  if ( delpreset )                                // Delete preset requested?
+  if ( ini_block.newpreset != currentpreset )         // New station requested?
   {
-    put_empty_eeprom_station ( delpreset ) ;      // Fill with a zero pattern
-    if ( delpreset == currentpreset )             // Listening to a deleted station?
+    mp3.setVolume ( 0 ) ;                             // Mute
+    mp3.stopSong() ;                                  // Stop playing
+    emptyring() ;                                     // Empty the ringbuffer
+    dbgprint ( "New preset requested = %d",
+               ini_block.newpreset ) ;
+    p = readhostfrominifile ( ini_block.newpreset ) ; // Lookup preset in ini-file
+    if ( p )                                          // Preset in ini-file?
     {
-      newpreset++ ;                               // Yes, select the next preset
+      dbgprint ( "Preset %d found in .ini file",      // Yes
+                 ini_block.newpreset ) ;
+      strcpy ( host, p ) ;                            // Save it for storage and selection later 
+      hostreq = true ;                                // Force this station as new preset
     }
-    delpreset = 0 ;                               // Just once
+    currentpreset = ini_block.newpreset ;             // Remember current preset
+    dbgprint ( "Remember preset %d", currentpreset ) ;
   }
-  if ( newpreset != currentpreset )               // New station requested?
+  if ( hostreq )
   {
-    mp3.setVolume ( 0 ) ;                         // Mute
-    mp3.stopSong() ;                              // Stop playing
-    emptyring() ;                                 // Empty the ringbuffer
-    connecttohost() ;                             // Switch to new host
+    connecttohost() ;                                 // Switch to new host
+    hostreq = false ;
   }
-  if ( savreq )                                   // Request to save settings
-  {
-    savreq = false ;                              // Yes: reset request first
-    saveVolumeAndPreset() ;                       // Save the settings
-  }
-  mp3.setVolume ( reqvol ) ;                      // Set to requested volume
-  if ( reqtone )                                  // Request to change tone?
+  mp3.setVolume ( ini_block.reqvol ) ;                // Set to requested volume
+  if ( reqtone )                                      // Request to change tone?
   {
     reqtone = false ;
-    mp3.setTone ( rtone ) ;                       // Set SCI_BASS to requested value
+    mp3.setTone ( ini_block.rtone ) ;                 // Set SCI_BASS to requested value
   }
-  ArduinoOTA.handle() ;                           // Check for OTA
+  if ( resetreq )                                     // Reset requested?
+  {
+    delay ( 1000 ) ;                                  // Yes, wait some time
+    ESP.restart() ;                                   // Reboot
+  }
+  if ( muteflag )
+  {
+    mp3.setVolume ( 0 ) ;                             // Mute
+  }
+  else
+  {
+    mp3.setVolume ( ini_block.reqvol ) ;              // Unmute
+  }
+  scanserial() ;                                      // Handle serial input
+  ArduinoOTA.handle() ;                               // Check for OTA
 }
 
 
@@ -1520,14 +1614,14 @@ void loop()
 //******************************************************************************************
 void handlebyte ( uint8_t b )
 {
-  static int       metaindex ;                          // Index in metaline
+  static uint16_t  metaindex ;                          // Index in metaline
   static bool      firstmetabyte ;                      // True if first metabyte (counter) 
   static int       LFcount ;                            // Detection of end of header
   static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
   static int       chunkcount = 0 ;                     // Data in chunk
   static bool      firstchunk = true ;                  // First chunk as input
   char*            p ;                                  // Pointer in metaline
-  int              i, j ;                               // Loop control
+  int              i ;                                  // Loop control
 
   
   if ( datamode == INIT )                              // Initialize for header receive
@@ -1588,7 +1682,7 @@ void handlebyte ( uint8_t b )
       metaline[metaindex] = '\0' ;                     // Mark end of string
       metaindex = 0 ;                                  // Reset for next line
       dbgprint ( metaline ) ;                          // Show it
-      if ( p = strstr ( metaline, "icy-br:" ) )
+      if ( ( p = strstr ( metaline, "icy-br:" ) ) )
       {
         bitrate = atoi ( p + 7 ) ;                     // Found bitrate tag, read the bitrate
         if ( bitrate == 0 )                            // For Ogg br is like "Quality 2"
@@ -1596,11 +1690,11 @@ void handlebyte ( uint8_t b )
           bitrate = 87 ;                               // Dummy bitrate
         }
       }
-      else if ( p = strstr ( metaline, "icy-metaint:" ) )
+      else if ( (  p = strstr ( metaline, "icy-metaint:" ) ) )
       {
         metaint = atoi ( p + 12 ) ;                    // Found metaint tag, read the value
       }
-      else if ( p = strstr ( metaline, "icy-name:" ) )
+      else if ( ( p = strstr ( metaline, "icy-name:" ) ) )
       {
         strncpy ( sname, p + 9, sizeof ( sname ) ) ;   // Found station name, save it, prevent overflow
         sname[sizeof(sname)-1] = '\0' ;
@@ -1687,6 +1781,35 @@ String getContentType ( String filename )
 
 
 //******************************************************************************************
+//                         H A N D L E F I L E U P L O A D                                 *
+//******************************************************************************************
+// Handling of upload request.  Write file to SPIFFS.                                      *
+//******************************************************************************************
+void handleFileUpload ( AsyncWebServerRequest *request, String filename,
+                        size_t index, uint8_t *data, size_t len, bool final )
+{
+  static File f ;                                 // File handle output file
+  char*  reply ;                                  // Reply for webserver
+
+  dbgprint ( "File upload %s, len %d, index %d", filename.c_str(), len, index ) ;
+  if ( index == 0 )
+  {
+    f = SPIFFS.open ( String ( "/" ) + filename, "w" ) ;
+  }
+  if ( len )
+  {
+    f.write ( data, len ) ;
+  }
+  if ( final )
+  {
+    f.close() ;
+    reply = dbgprint ( "File upload %s finished", filename.c_str() ) ;
+    request->send ( 200, "", reply ) ;
+  }
+}
+
+
+//******************************************************************************************
 //                                H A N D L E F S                                          *
 //******************************************************************************************
 // Handling of requesting files from the SPIFFS. Example: /favicon.ico                     *
@@ -1717,76 +1840,145 @@ void handleFS ( AsyncWebServerRequest *request )
 //******************************************************************************************
 void getpresets ( AsyncWebServerRequest *request )
 {
-  int                 i ;                          // Loop control
-  char                *p ;                         // Pointer to EEprom entry
-  AsyncResponseStream *response ;                  // Response to client
+  String              path ;                           // Full file spec as string
+  File                inifile ;                        // File containing URL with mp3
+  String              line ;                           // Input line from .ini file
+  String              linelc ;                         // Same, but lowercase
+  int                 inx ;                            // Position of search char in line
+  int                 i ;                              // Loop control
+  AsyncResponseStream *response ;                      // Response to client
   
   response = request->beginResponseStream ( "text/plain" ) ;
-  for ( i = 1 ; i < EENUM ; i++ )                  // List all for entries
+  path = String ( INIFILENAME ) ;                      // Form full path
+  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  if ( inifile )
   {
-    p = get_eeprom_station ( i ) ;                 // Get next entry
-    if ( *p )                                      // Check if filled with a station
-    { 
-      response->printf ( "%02d%s|", i, p ) ;      // 2 digits plus name   
+    while ( inifile.available() )
+    {
+      line = inifile.readStringUntil ( '\n' ) ;        // Read next line
+      linelc = line ;                                  // Copy for lowercase
+      linelc.toLowerCase() ;                           // Set to lowercase
+      if ( linelc.startsWith ( "preset_" ) )           // Found the key?
+      {
+        i = linelc.substring(7,9).toInt() ;            // Get index 00..99
+        inx = line.indexOf ( "#" ) ;                   // Get position of "#"
+        if ( inx > 0 )                                 // Equal sign present?
+        {
+          line.remove ( 0, inx + 1 ) ;                 // Yes, remove non-comment part
+        }
+        else
+        {
+          inx = line.indexOf ( "=" ) ;                 // Get position of "="
+          line.remove ( 0, inx + 1 ) ;                 // Yes, remove first part of line
+        }
+        line = chomp ( line ) ;                        // Remove garbage
+        response->printf ( "%02d%s|", i,
+                           line.c_str() ) ;            // 2 digits plus description
+      }
     }
+    inifile.close() ;                                  // Close the file
   }
   request->send ( response ) ;
 }
 
 
 //******************************************************************************************
-//                             H A N D L E C M D                                           *
+//                             A N A L Y Z E C M D                                         *
 //******************************************************************************************
-// Handling of the various commands from remote (case sensitive). All commands have the    *
-// form "/?parameter=value".  Example: "/?volume=50".                                      *
-// The startpage will be returned if no arguments are given.                               *
+// Handling of the various commands from remote webclient, Serial or MQTT.                 *
+// Version for handling string with: <parameter>=<value>                                   *
+//******************************************************************************************
+char* analyzeCmd ( const char* str )
+{
+  char*  value ;                                 // Points to value after equalsign in command
+  
+  value = strstr ( str, "=" ) ;                  // See if command contains a "="
+  if ( value )
+  {
+    *value = '\0' ;                              // Separate command from value
+    value++ ;                                    // Points to value after "=" 
+  }
+  else
+  {
+    value = (char*) "0" ;                        // No value, assume zero
+  }
+  return  analyzeCmd ( str, value ) ;            // Analyze command and handle it
+}
+
+
+//******************************************************************************************
+//                                 C H O M P                                               *
+//******************************************************************************************
+// Do some filtering on de inputstring:                                                    *
+//  - String comment part (starting with "#").                                             *
+//  - Strip trailing CR.                                                                   *
+//  - Strip leading spaces.                                                                *
+//  - Strip trailing spaces.                                                               *
+//******************************************************************************************
+String chomp ( String str )
+{
+  int   inx ;                                         // Index in de input string
+
+  if ( ( inx = str.indexOf ( "#" ) ) >= 0 )           // Comment line or partial comment?
+  {
+    str.remove ( inx ) ;                              // Yes, remove
+  }
+  str.trim() ;                                        // Remove spaces and CR
+  return str ;                                        // Return the result
+}
+
+
+//******************************************************************************************
+//                             A N A L Y Z E C M D                                         *
+//******************************************************************************************
+// Handling of the various commands from remote webclient, serial or MQTT.                 *
+// par holds the parametername and val holds the value.                                    *
+// "wifi_00" and "preset_00" may appear more than once, like wifi_01, wifi_02, etc.        *
 // Examples with available parameters:                                                     *
+//   preset     = 12                        // Select start preset to connect to *)        *
+//   preset_00  = <mp3 stream>              // Specify station for a preset 00-99 *)       *
 //   volume     = 95                        // Percentage between 0 and 100                *
 //   upvolume   = 2                         // Add percentage to current volume            *
 //   downvolume = 2                         // Subtract percentage from current volume     *
-//   preset     = 5                         // Select preset 5 station for listening       *
-//   uppreset   = 1                         // Select next preset station for listening    *
-//   downpreset = 1                         // Select previous preset station              *
-//   tone       = 3,4,3,4                   // Setting bass and treble (see documentation) *
-//   station    = address:port              // Store new preset station and select it      *
-//   delete     = 0                         // Delete current playing station              *
-//   delete     = 5                         // Delete preset station number 5              *
-//   status     = 0                         // Show current station:port                   *
-//   test       = 0                         // For test purposes                           *
+//   toneha     = <0..15>                   // Setting treble gain                         *
+//   tonehf     = <0..15>                   // Setting treble frequency                    *
+//   tonela     = <0..15>                   // Setting bass gain                           *
+//   tonelf     = <0..15>                   // Setting treble frequency                    *
+//   station    = <mp3 stream>              // Select new station (will not be saved)      *
+//   mute                                   // Mute the music                              *
+//   unmute                                 // Unmute the music                            *
+//   wifi_00    = mySSID/mypassword         // Set WiFi SSID and password *)               *
+//   mqttbroker = mybroker.com              // Set MQTT broker to use *)                   *
+//   mqttport   = 1883                      // Set MQTT port to use, default 1883 *)       *
+//   mqttuser   = myuser                    // Set MQTT user for authentication *)         *
+//   mqttpasswd = mypassword                // Set MQTT password for authentication *)     *
+//   mqtttopic  = mytopic                   // Set MQTT topic to subscribe to *)           *
+//   mqttpubtopic = mypubtopic              // Set MQTT topic to publish to *)             *
+//   status                                 // Show current URL to play                    *
+//   test                                   // For test purposes                           *
 //   debug      = 0 or 1                    // Switch debugging on or off                  *
-//   list       = 0                         // Returns list of presets                     *
-//   analog     = 0                         // Show current analog input value             *
-// Multiple parameters are ignored.  An extra parameter may be "version=<random number>"   *
-// in order to prevent browsers like Edge and IE to use their cache.  This "version" is    *
-// ignored.                                                                                *
-// Example: "/?upvolume=5&version=0.9775479450590543"                                      *
+//   reset                                  // Restart the ESP8266                         *
+//   analog                                 // Show current analog input                   *
+//  Commands marked with "*)" are sensible in ini-file only                                *
 //******************************************************************************************
-void handleCmd ( AsyncWebServerRequest *request )
+char* analyzeCmd ( const char* par, const char* val )
 {
-  AsyncWebParameter* p ;                              // Points to parameter structure
-  String             argument ;                       // Next argument in command
-  String             value ;                          // Value of an argument
+  String             argument ;                       // Argument as string
+  String             value ;                          // Value of an argument as a string
   int                ivalue ;                         // Value of argument as an integer
-  static char        reply[80] ;                      // Reply to client
+  static char        reply[250] ;                     // Reply to client, will be returned
   uint8_t            oldvol ;                         // Current volume
-  uint8_t            newvol ;                         // Requested volume
-  int                numargs ;                        // Number of arguments
   bool               relative ;                       // Relative argument (+ or -)
-  uint32_t           t ;                              // For time test
+  int                inx ;                            // Index in string
   
-  t = millis() ;                                      // Timestamp at start
-  numargs = request->params() ;                       // Get number of arguments
-  if ( numargs == 0 )                                 // Any arguments
+  strcpy ( reply, "Command accepted" ) ;              // Default reply
+  argument = chomp ( par ) ;                          // Get the argument
+  if ( argument.length() == 0 )                       // Lege commandline (comment)?
   {
-    request->send ( SPIFFS, "/index.html",            // No parameters, send the startpage
-                    "text/html" ) ;
-    return ;
+    return reply ;                                    // Ignore
   }
-  strcpy ( reply, "Command(s) accepted" ) ;           // Default reply
-  p = request->getParam ( 0 ) ;                       // Get pointer to parameter structure
-  argument = p->name() ;                              // Get the argument
   argument.toLowerCase() ;                            // Force to lower case
-  value = p->value() ;                                // Get the specified value
+  value = chomp ( val ) ;                             // Get the specified value
   ivalue = abs ( value.toInt() ) ;                    // Also as an integer
   relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
   if ( argument.indexOf ( "down" ) == 0 )             // - relative setting?
@@ -1794,119 +1986,229 @@ void handleCmd ( AsyncWebServerRequest *request )
     relative = true ;                                 // It's relative
     ivalue = - ivalue ;                               // But with negative value
   }
-  dbgprint ( "Command: %s with parameter %s converted to %d",
-             argument.c_str(), value.c_str(), ivalue ) ;
+  dbgprint ( "Command: %s with parameter %s",
+             argument.c_str(), value.c_str() ) ;
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
-    // Volume may be of the form "volume+", "volume-" or "volume" for relative or absolute setting
+    // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
     oldvol = mp3.getVolume() ;                        // Get current volume
     if ( relative )                                   // + relative setting?
     {
-      reqvol = oldvol + ivalue ;                      // Up by 0.5 or more dB
+      ini_block.reqvol = oldvol + ivalue ;            // Up by 0.5 or more dB
     }
     else
     {
-      reqvol = ivalue ;                               // Absolue setting
+      ini_block.reqvol = ivalue ;                     // Absolue setting
     }
-    if ( reqvol > 100 )
+    if ( ini_block.reqvol > 100 )
     {
-      reqvol = 100 ;                                  // Limit to normal values
+      ini_block.reqvol = 100 ;                        // Limit to normal values
     }
-    sprintf ( reply, "Volume is now %d", reqvol ) ;   // Reply new volume
+    sprintf ( reply, "Volume is now %d",              // Reply new volume
+              ini_block.reqvol ) ;
+  }
+  else if ( argument == "mute" )                      // Mute request
+  {
+    muteflag = true ;                                 // Request volume to zero
+  }
+  else if ( argument == "unmute" )                    // Unmute request?
+  {
+    muteflag = false ;                                // Request normal volume
   }
   else if ( argument.indexOf ( "preset" ) >= 0 )      // Preset station?
   {
-    if ( relative )                                   // Relative argument?
+    if ( !argument.startsWith ( "preset_" ) )         // But not a station URL
     {
-      newpreset += ivalue ;                           // Yes, adjust currentpreset
+      if ( relative )                                 // Relative argument?
+      {
+        ini_block.newpreset += ivalue ;               // Yes, adjust currentpreset
+      }
+      else
+      {
+        ini_block.newpreset = ivalue ;                // Otherwise set station
+      }
+      dbgprint ( "Preset set to %d", ini_block.newpreset ) ;
     }
-    else
-    {
-      newpreset = ivalue ;                            // Otherwise set station
-    }
-    sprintf ( reply, "Next station requested = %d",   // Format reply
-              newpreset ) ;
   }
-  else if ( argument.indexOf ( "station" ) == 0 )     // Station in the form address:port
+  else if ( argument =="station" )                    // Station in the form address:port
   {
-    strcpy ( newstation, value.c_str() ) ;            // Save it for storage and selection later 
-    newpreset++ ;                                     // Select this station as new preset
+    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later 
+    hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "New preset station %s accepted",       // Format reply
-              newstation ) ;
+              host ) ;
   }
-  else if ( argument.indexOf ( "delete" ) == 0 )      // Station in the form address:port
-  {
-    if ( ivalue < 0 || ivalue >= EENUM )              // Check preset number
-    {
-      sprintf ( reply, "Bad preset number %d",        // Must be 0..63
-                ivalue ) ;
-    }
-    if ( ivalue )                                     // 0 means current preset
-    {
-      delpreset = ivalue ;                            // Fill with a zero pattern later
-    }
-    else
-    {
-      delpreset = currentpreset ;                     // Fill with a zero pattern later
-    }
-  }
-  else if ( argument.indexOf ( "status" ) == 0 )      // Status request
+  else if ( argument == "status" )                    // Status request
   {
     sprintf ( reply, "Playing preset %d - %s",        // Format reply
-              currentpreset, currentstat ) ;
+              currentpreset, host ) ;
   }
-  else if ( argument.indexOf ( "reset" ) == 0 )       // Reset request
+  else if ( argument.startsWith ( "reset" ) )         // Reset request
   {
-    ESP.restart() ;                                   // Reset all
-    // No continuation here......
+    resetreq = true ;                                 // Reset all
   }
-  else if ( argument.indexOf ( "test" ) == 0 )        // Test command
+  else if ( argument == "test" )                      // Test command
   {
     sprintf ( reply, "Free memory is %d, ringbuf %d, stream %d",
               system_get_free_heap_size(), rcount, mp3client.available() ) ;
   }
   // Commands for bass/treble control
-  else if ( argument.indexOf ( "tone" ) == 0 )        // Tone command
+  else if ( argument.startsWith ( "tone" ) )          // Tone command
   {
     if ( argument.indexOf ( "ha" ) > 0 )              // High amplitue? (for treble)
     {
-      rtone[0] = ivalue ;                             // Yes, prepare to set ST_AMPLITUDE
+      ini_block.rtone[0] = ivalue ;                   // Yes, prepare to set ST_AMPLITUDE
     }
     if ( argument.indexOf ( "hf" ) > 0 )              // High frequency? (for treble)
     {
-      rtone[1] = ivalue ;                             // Yes, prepare to set ST_FREQLIMIT
+      ini_block.rtone[1] = ivalue ;                   // Yes, prepare to set ST_FREQLIMIT
     }
     if ( argument.indexOf ( "la" ) > 0 )              // Low amplitue? (for bass)
     {
-      rtone[2] = ivalue ;                             // Yes, prepare to set SB_AMPLITUDE
+      ini_block.rtone[2] = ivalue ;                   // Yes, prepare to set SB_AMPLITUDE
     }
     if ( argument.indexOf ( "lf" ) > 0 )              // High frequency? (for bass)
     {
-      rtone[3] = ivalue ;                             // Yes, prepare to set SB_FREQLIMIT
+      ini_block.rtone[3] = ivalue ;                   // Yes, prepare to set SB_FREQLIMIT
     }
     reqtone = true ;                                  // Set change request
     sprintf ( reply, "Parameter for bass/treble %s set to %d",
               argument.c_str(), ivalue ) ;
   }
-  else if ( argument.indexOf ( "list" ) == 0 )        // list request?
+  else if ( argument.startsWith ( "mqtt" ) )          // Parameter fo MQTT?
   {
-    getpresets ( request ) ;                          // Yes, get the list and send it as reply
-    return ; 
+    strcpy ( reply, "MQTT broker parameter changed. Save and restart to have effect" ) ;
+    if ( argument.indexOf ( "broker" ) > 0 )          // Broker specified?
+    {
+      strncpy ( ini_block.mqttbroker, value.c_str(),
+                sizeof(ini_block.mqttbroker) ) ;      // Yes, set broker accordingly
+    }
+    else if ( argument.indexOf ( "port" ) > 0 )       // Port specified?
+    {
+      ini_block.mqttport = ivalue ;                   // Yes, set port user accordingly
+    }
+    else if ( argument.indexOf ( "user" ) > 0 )       // User specified?
+    {
+      strncpy ( ini_block.mqttuser, value.c_str(),
+                sizeof(ini_block.mqttuser) ) ;        // Yes, set user user accordingly
+    }
+    else if ( argument.indexOf ( "passwd" ) > 0 )     // Password specified?
+    {
+      strncpy ( ini_block.mqttpasswd, value.c_str(),
+                sizeof(ini_block.mqttpasswd) ) ;      // Yes, set broker password accordingly
+    }
+    else if ( argument.indexOf ( "pubtopic" ) > 0 )   // Publish topic specified?
+    {
+      strncpy ( ini_block.mqttpubtopic, value.c_str(),
+                sizeof(ini_block.mqttpubtopic) ) ;    // Yes, set broker password accordingly
+    }
+    else if ( argument.indexOf ( "topic" ) > 0 )      // Topic specified?
+    {
+      strncpy ( ini_block.mqtttopic, value.c_str(),
+                sizeof(ini_block.mqtttopic) ) ;       // Yes, set broker password accordingly
+    }
   }
-  else if ( argument.indexOf ( "debug" ) == 0 )       // debug on/off request?
+  else if ( argument == "debug" )                     // debug on/off request?
   {
     DEBUG = ivalue ;                                  // Yes, set flag accordingly
   }
-  else if ( argument.indexOf ( "analog" ) == 0 )      // Show analog request?
+  else if ( argument == "analog" )                    // Show analog request?
   {
     sprintf ( reply, "Analog input = %d units",       // Read the analog input for test
               analogRead ( A0 ) ) ;
   }
+  else if ( argument.startsWith ( "wifi" ) )          // WiFi SSID and passwd?
+  {
+    inx = value.indexOf ( "/" ) ;                     // Find separator between ssid and password
+    // Was this the strongest SSID or the only acceptable?
+    if ( num_an == 1 )
+    {
+      ini_block.ssid = value.substring ( 0, inx ) ;   // Only one.  Set as the strongest
+    }
+    if ( value.substring ( 0, inx ) == ini_block.ssid ) 
+    {
+      ini_block.passwd = value.substring ( inx+1 ) ;  // Yes, set password
+    }
+  }
+  else if ( argument == "getnetworks" )               // List all WiFi networks?
+  {
+    sprintf ( reply, networks.c_str() ) ;             // Reply is SSIDs
+  }
   else
   {
-    sprintf ( reply, "ESP-radio called with ilegal parameter: %s",
+    sprintf ( reply, "ESP-radio called with illegal parameter: %s",
               argument.c_str() ) ;
+  }
+  return reply ;                                      // Return reply to the caller
+}
+
+
+//******************************************************************************************
+//                             H A N D L E C M D                                           *
+//******************************************************************************************
+// Handling of the various commands from remote (case sensitive). All commands have the    *
+// form "/?parameter[=value]".  Example: "/?volume=50".                                    *
+// The startpage will be returned if no arguments are given.                               *
+// Multiple parameters are ignored.  An extra parameter may be "version=<random number>"   *
+// in order to prevent browsers like Edge and IE to use their cache.  This "version" is    *
+// ignored.                                                                                *
+// Example: "/?upvolume=5&version=0.9775479450590543"                                      *
+// The save and the list commands are handled specially.                                   *
+//******************************************************************************************
+void handleCmd ( AsyncWebServerRequest *request )
+{
+  AsyncWebParameter* p ;                              // Points to parameter structure
+  String             argument ;                       // Next argument in command
+  String             value ;                          // Value of an argument
+  const char*        reply ;                          // Reply to client
+  uint32_t           t ;                              // For time test
+  int                params ;                         // Number of params
+  File               f ;                              // Handle for writing /announcer.ini to SPIFFS
+  
+  t = millis() ;                                      // Timestamp at start
+  params = request->params() ;                        // Get number of arguments
+  if ( params == 0 )                                  // Any arguments
+  {
+    if ( NetworkFound )
+    {
+      request->send ( SPIFFS, "/index.html",          // No parameters, send the startpage
+                      "text/html" ) ;
+    }
+    else
+    {
+      request->send ( SPIFFS, "/config.html",        // Or the configuration page if in AP mode
+                      "text/html" ) ;
+    }
+    return ;
+  }
+  p = request->getParam ( 0 ) ;                       // Get pointer to parameter structure
+  argument = p->name() ;                              // Get the argument
+  argument.toLowerCase() ;                            // Force to lower case
+  value = p->value() ;                                // Get the specified value
+    // For the "save" command, the contents is the value of the next parameter
+  if ( argument.startsWith ( "save" ) && ( params > 1 ) )
+  {
+    reply = "Error saving " INIFILENAME ;             // Default reply
+    p = request->getParam ( 1 ) ;                     // Get pointer to next parameter structure
+    if ( p->isPost() )                                // Does it have a POST?
+    {
+      f = SPIFFS.open ( INIFILENAME, "w" ) ;          // Save to inifile
+      if ( f )
+      {
+        f.print ( p->value() ) ;
+        f.close() ;
+        reply = dbgprint ( "%s saved", INIFILENAME ) ;
+      }
+    }
+  }
+  else if ( argument.startsWith ( "list" ) )          // List all presets?
+  {
+    getpresets ( request ) ;                          // Reply with station presets
+  }
+  else
+  {
+    reply = analyzeCmd ( argument.c_str(),            // Analyze it 
+                         value.c_str() ) ;
   }
   request->send ( 200, "text/plain", reply ) ;        // Send the reply
   t = millis() - t ;
@@ -1917,4 +2219,3 @@ void handleCmd ( AsyncWebServerRequest *request )
     ESP.restart() ;                                   // Last resource
   }
 }
-
