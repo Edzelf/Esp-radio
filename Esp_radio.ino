@@ -69,7 +69,7 @@
 // -------  ------  --------------  ---------------     -------------------  ---------------------
 // GND      -        -              pin 8 (GND)         pin 8 GND            Power supply
 // VCC 3.3  -        -              pin 6 (VCC)         -                    LDO 3.3 Volt
-// VCC 5 V  -        -              -                   pin 9 5V             Power supply
+// VCC 5 V  -        -              pin 7 (BL)          pin 9 5V             Power supply
 // RST      -        -              pin 1 (RST)         pin 3 RESET          Reset circuit
 //
 // The reset circuit is a circuit with 2 diodes to GPIO5 and GPIO16 and a resistor to ground
@@ -103,7 +103,7 @@
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 //
 // Define the version number:
-#define VERSION "04-oct-2016"
+#define VERSION "07-oct-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -164,7 +164,7 @@ extern "C"
 // Maximal length of the URL of a host
 #define MAXHOSTSIZ 128
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
-#define RINGBFSIZ 18000
+#define RINGBFSIZ 10000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
@@ -228,7 +228,7 @@ char             cmd[130] ;                                // Command from MQTT 
 #if defined ( USETFT )
 TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
 #endif
-Ticker           tckr ;                                    // For timing 10 sec
+Ticker           tckr ;                                    // For timing 100 msec
 uint32_t         totalcount = 0 ;                          // Counter mp3 data
 datamode_t       datamode ;                                // State of datastream
 int              metacount ;                               // Number of bytes in metadata
@@ -238,8 +238,11 @@ char             streamtitle[150] ;                        // Streamtitle from m
 int              bitrate ;                                 // Bitrate in kb/sec            
 int              metaint = 0 ;                             // Number of databytes between metadata
 int8_t           currentpreset = -1 ;                      // Preset station playing
-char             host[MAXHOSTSIZ] ;                        // The hostname to connect to
-bool             hostreq ;                                 // Requst for new host
+char             host[MAXHOSTSIZ] ;                        // The hostname to connect to or file to play
+bool             hostreq ;                                 // Request for new host
+bool             stopreq = false ;                         // Request to stop playing
+bool             playreq = false ;                         // Request for mp3 file to play
+bool             playing = false ;                         // Playing active (for data guard)
 char             sname[100] ;                              // Stationname
 int              port ;                                    // Port number for host
 int              delpreset = 0 ;                           // Preset to be deleted if nonzero
@@ -258,11 +261,11 @@ bool             NetworkFound ;                            // True if WiFi netwo
 String           networks ;                                // Found networks
 String           anetworks ;                               // Aceptable networks (present in .ini file)
 uint8_t          num_an ;                                  // Number of acceptable networks in .ini file
+char             testfilename[20] ;                        // File to test (SPIFFS speed)
 
 //******************************************************************************************
 // End of lobal data section.                                                              *
 //******************************************************************************************
-
 //******************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                              *
 //******************************************************************************************
@@ -510,7 +513,7 @@ void VS1053::begin()
   digitalWrite ( dcs_pin,   HIGH ) ;                    // Back to normal again
   digitalWrite ( cs_pin,    HIGH ) ;
   delay ( 500 ) ;
-  // Init SPI in slow mode ( 2 MHz )
+  // Init SPI in slow mode ( 0.2 MHz )
   VS1053_SPI = SPISettings ( 200000, MSBFIRST, SPI_MODE0 ) ;
   //printDetails ( "Right after reset/startup" ) ;
   delay ( 20 ) ;
@@ -813,40 +816,43 @@ void listNetworks()
 //******************************************************************************************
 void timer10sec()
 {
-  static uint32_t oldtotalcount = 7321 ;        // Needed foor change detection
-  static uint8_t  morethanonce = 0 ;            // Counter for succesive fails
-  static uint8_t  t600 = 0 ;                    // Counter for 10 minutes
+  static uint32_t oldtotalcount = 7321 ;          // Needed foor change detection
+  static uint8_t  morethanonce = 0 ;              // Counter for succesive fails
+  static uint8_t  t600 = 0 ;                      // Counter for 10 minutes
 
-  if ( totalcount == oldtotalcount )
+  if ( playing )                                  // Test op continious play?
   {
-    // No data detected!
-    dbgprint ( "No data input" ) ;
-    if ( morethanonce > 10 )                    // Happened more than 10 times?
+    if ( totalcount == oldtotalcount )
     {
-      dbgprint ( "Going to restart..." ) ;
-      ESP.restart() ;                           // Reset the CPU, probably no return
+      // No data detected!
+      dbgprint ( "No data input" ) ;
+      if ( morethanonce > 10 )                    // Happened more than 10 times?
+      {
+        dbgprint ( "Going to restart..." ) ;
+        ESP.restart() ;                           // Reset the CPU, probably no return
+      }
+      if ( morethanonce >= 1 )                    // Happened more than once?
+      {
+        ini_block.newpreset++ ;                   // Yes, try next channel
+        dbgprint ( "Trying other station..." ) ;
+      }
+      morethanonce++ ;                            // Count the fails
     }
-    if ( morethanonce >= 1 )                    // Happened more than once?
+    else
     {
-      ini_block.newpreset++ ;                   // Yes, try next channel
-      dbgprint ( "Trying other station..." ) ;
+      if ( morethanonce )                         // Recovered from data loss?
+      {
+        dbgprint ( "Recovered from dataloss" ) ;
+        morethanonce = 0 ;                        // Data see, reset failcounter
+      }
+      oldtotalcount = totalcount ;                // Save for comparison in next cycle
     }
-    morethanonce++ ;                            // Count the fails
-  }
-  else
-  {
-    if ( morethanonce )                         // Recovered from data loss?
+    if ( t600++ == 60 )                           // 10 minutes over?
     {
-      dbgprint ( "Recovered from dataloss" ) ;
-      morethanonce = 0 ;                        // Data see, reset failcounter
+      t600 = 0 ;                                  // Yes, reset counter
+      dbgprint ( "10 minutes over" ) ;
+      publishIP() ;                               // Re-publish IP
     }
-    oldtotalcount = totalcount ;                // Save for comparison in next cycle
-  }
-  if ( t600++ == 60 )                           // 10 minutes over?
-  {
-    t600 = 0 ;                                  // Yes, reset counter
-    dbgprint ( "10 minutes over" ) ;
-    publishIP() ;                               // Re-publish IP
   }
 }
 
@@ -876,6 +882,48 @@ uint8_t anagetsw ( uint16_t v )
     }
   }
   return sw ;                                      // Return active switch
+}
+
+
+//******************************************************************************************
+//                               T E S T F I L E                                           *
+//******************************************************************************************
+// Test the performance of SPIFFS read.                                                    *
+//******************************************************************************************
+void testfile ( char* fspec )
+{
+  String   path ;                                      // Full file spec
+  File     tfile ;                                     // File containing mp3
+  uint32_t len, savlen ;                               // File length
+  uint32_t t0, t1 ;                                    // For time test
+  uint32_t t_error = 0 ;                               // Number of slow reads
+  
+  t0 = millis() ;                                      // Timestamp at start
+  t1 = t0 ;                                            // Prevent uninitialized value
+  path = String ( "/" ) + String ( fspec ) ;           // Form full path
+  tfile = SPIFFS.open ( path, "r" ) ;                  // Open the file
+  if ( tfile )
+  {
+    len = tfile.available() ;                          // Get file length
+    savlen = len ;                                     // Save for result print
+    while ( len-- )                                    // Any data left?
+    {
+      t1 = millis() ;                                  // To meassure read time
+      tfile.read() ;                                   // Read one byte
+      if ( ( millis() - t1 ) > 5 )                     // Read took more than 5 msec?
+      {
+        t_error++ ;                                    // Yes, count slow reads
+      }
+      if ( ( len % 100 ) == 0 )                        // Yield reguarly
+      {
+        yield() ;
+      }
+    }
+    tfile.close() ;
+  }
+  // Show results for debug
+  dbgprint ( "Read %s, length %d took %d seconds, %d slow reads",
+             fspec, savlen, ( t1 - t0 ) / 1000, t_error ) ;
 }
 
 
@@ -1089,6 +1137,7 @@ void connecttohost()
                       "Connection: close\r\n\r\n");
   }
   datamode = INIT ;                                 // Start in metamode
+  playing = true ;                                  // Allow data guard
 }
 
 
@@ -1558,6 +1607,16 @@ void loop()
   {
     handlebyte ( getring() ) ;                        // Yes, handle it
   }
+  if ( stopreq )                                      // Stop requested?
+  {
+    stopreq = false ;                                 // Yes, stop song
+    playing = false ;                                 // No more guarding
+    mp3client.flush() ;                               // Flush stream client
+    mp3client.stop() ;                                // Stop stream client
+    mp3.setVolume ( 0 ) ;                             // Mute
+    mp3.stopSong() ;                                  // Stop playing
+    emptyring() ;                                     // Empty the ringbuffer
+  }
   if ( ini_block.newpreset != currentpreset )         // New station requested?
   {
     mp3.setVolume ( 0 ) ;                             // Mute
@@ -1573,11 +1632,16 @@ void loop()
       strcpy ( host, p ) ;                            // Save it for storage and selection later 
       hostreq = true ;                                // Force this station as new preset
     }
-    currentpreset = ini_block.newpreset ;             // Remember current preset
-    dbgprint ( "Remember preset %d", currentpreset ) ;
+    else
+    {
+      // This preset is not available, return to preset 0, will be handled in next loop()
+      ini_block.newpreset = 0 ;                       // Wrap to first station
+    }
   }
   if ( hostreq )
   {
+    currentpreset = ini_block.newpreset ;             // Remember current preset
+    dbgprint ( "Remember preset %d", currentpreset ) ;
     connecttohost() ;                                 // Switch to new host
     hostreq = false ;
   }
@@ -1599,6 +1663,11 @@ void loop()
   else
   {
     mp3.setVolume ( ini_block.reqvol ) ;              // Unmute
+  }
+  if ( *testfilename )                                // File to test?
+  {
+    testfile ( testfilename ) ;                       // Yes, do the test
+    *testfilename = '\0' ;                            // Clear test request
   }
   scanserial() ;                                      // Handle serial input
   ArduinoOTA.handle() ;                               // Check for OTA
@@ -1788,22 +1857,47 @@ String getContentType ( String filename )
 void handleFileUpload ( AsyncWebServerRequest *request, String filename,
                         size_t index, uint8_t *data, size_t len, bool final )
 {
-  static File f ;                                 // File handle output file
-  char*  reply ;                                  // Reply for webserver
+  String          path ;                              // Filename including "/"
+  static File     f ;                                 // File handle output file
+  char*           reply ;                             // Reply for webserver
+  static uint32_t t ;                                 // Timer for progress messages
+  uint32_t        t1 ;                                // For compare
+  static uint32_t totallength ;                       // Total file length
+  static size_t   lastindex ;                         // To test same index
 
-  dbgprint ( "File upload %s, len %d, index %d", filename.c_str(), len, index ) ;
   if ( index == 0 )
   {
-    f = SPIFFS.open ( String ( "/" ) + filename, "w" ) ;
+    path = String ( "/" ) + filename ;                // Form SPIFFS filename
+    SPIFFS.remove ( path ) ;                          // Remove old file
+    f = SPIFFS.open ( path, "w" ) ;                   // Create new file
+    t = 0 ;                                           // Force first print
+    totallength = 0 ;                                 // Total file lengt still zero
+    lastindex = 0 ;                                   // Prepare test
   }
-  if ( len )
+  t1 = millis() ;                                     // Current timestamp
+  if ( ( ( t1 - t ) > 1000 ) ||                       // One second passed?
+       final ||                                       // or final chunk?
+       ( len != 1460 ) )                              // or strange length
   {
-    f.write ( data, len ) ;
+    // Yes, print progress
+    dbgprint ( "File upload %s, len %d, index %d",
+               filename.c_str(), len, index ) ;
+    t = t1 ;
   }
-  if ( final )
+  if ( len )                                          // Something to write?
   {
-    f.close() ;
-    reply = dbgprint ( "File upload %s finished", filename.c_str() ) ;
+    if ( index != lastindex )                         // New chunk?
+    {
+      f.write ( data, len ) ;                         // Yes, transfer to SPIFFS
+      totallength += len ;                            // Update stored length
+      lastindex = index ;                             // Remenber this part
+    }
+  }
+  if ( final )                                        // Was this last chunk?
+  {
+    f.close() ;                                       // Yes, clode the file
+    reply = dbgprint ( "File upload %s, %d bytes finished",
+                       filename.c_str(), totallength ) ;
     request->send ( 200, "", reply ) ;
   }
 }
@@ -1955,6 +2049,7 @@ String chomp ( String str )
 //   mqtttopic  = mytopic                   // Set MQTT topic to subscribe to *)           *
 //   mqttpubtopic = mypubtopic              // Set MQTT topic to publish to *)             *
 //   status                                 // Show current URL to play                    *
+//   testfile   = <file on SPIFFS>          // Test SPIFFS reads for debugging purpose     *
 //   test                                   // For test purposes                           *
 //   debug      = 0 or 1                    // Switch debugging on or off                  *
 //   reset                                  // Restart the ESP8266                         *
@@ -2030,12 +2125,24 @@ char* analyzeCmd ( const char* par, const char* val )
       dbgprint ( "Preset set to %d", ini_block.newpreset ) ;
     }
   }
+  else if ( argument =="stop" )                       // Stop requested
+  {
+    stopreq = true ;                                  // Force stop playing
+  }
   else if ( argument =="station" )                    // Station in the form address:port
   {
     strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later 
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "New preset station %s accepted",       // Format reply
+              host ) ;
+  }
+  else if ( argument =="play" )                       // Play standalone mp3 file requested?
+  {
+    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later 
+    playreq = true ;                                  // Force this mp3 to be played
+    sprintf ( reply,
+              "Mp3-file to play %s accepted",         // Format reply
               host ) ;
   }
   else if ( argument == "status" )                    // Status request
@@ -2046,6 +2153,11 @@ char* analyzeCmd ( const char* par, const char* val )
   else if ( argument.startsWith ( "reset" ) )         // Reset request
   {
     resetreq = true ;                                 // Reset all
+  }
+  else if ( argument == "testfile" )                  // Testfile command?
+  {
+    strncpy ( testfilename, value.c_str(),
+                sizeof(testfilename) ) ;              // Yes, set file to test accordingly
   }
   else if ( argument == "test" )                      // Test command
   {
@@ -2203,6 +2315,7 @@ void handleCmd ( AsyncWebServerRequest *request )
   }
   else if ( argument.startsWith ( "list" ) )          // List all presets?
   {
+    dbgprint ( "list request from browser" ) ;
     getpresets ( request ) ;                          // Reply with station presets
     return ;
   }
@@ -2220,3 +2333,4 @@ void handleCmd ( AsyncWebServerRequest *request )
     ESP.restart() ;                                   // Last resource
   }
 }
+
