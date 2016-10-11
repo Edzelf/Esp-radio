@@ -1,8 +1,9 @@
 # Esp-radio
-Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 04-oct-2016.
+Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 11-oct-2016.
 
 Features:
 -	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
+- Can connect to a standalone mp3 file on a server.
 -	Uses a minimal number of components; no Arduino required.
 -	Handles bitrates up to 320 kbps.
 -	Has a preset list of maximal 100 favorite radio stations in configuration file.
@@ -24,6 +25,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 11-oct-2016: Allow stations that do not specify bitrate.  Allow standalone MP3s. 
 - 04-oct-2016: Version with MQTT and configuration in radio.ini file.
 - 04-jul-2016: WiFi.disconnect clears old connection now (thanks to Juppit)
 - 27-may-2016: Fixed restore station at restart.
