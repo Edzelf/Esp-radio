@@ -101,9 +101,10 @@
 // 04-07-2016, ES: WiFi.disconnect clears old connection now (thanks to Juppit)
 // 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
+// 11-10-2016, ES: Allow stations that have no bitrate in header like icecast.err.ee/raadio2.mp3.
 //
 // Define the version number:
-#define VERSION "07-oct-2016"
+#define VERSION "11-oct-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -124,7 +125,7 @@
 
 extern "C"
 {
-  #include "user_interface.h"
+#include "user_interface.h"
 }
 
 // Definitions for 3 control switches on analog input
@@ -147,7 +148,7 @@ extern "C"
 #define	GREEN   0x07E0
 #define CYAN    GREEN | BLUE
 #define MAGENTA RED | BLUE
-#define YELLOW  RED | GREEN  
+#define YELLOW  RED | GREEN
 #define WHITE   0xFFFF
 // Digital I/O used
 // Pins for VS1053 module
@@ -164,7 +165,7 @@ extern "C"
 // Maximal length of the URL of a host
 #define MAXHOSTSIZ 128
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
-#define RINGBFSIZ 10000
+#define RINGBFSIZ 20000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
@@ -172,6 +173,8 @@ extern "C"
 // Access point name if connection to WiFi network fails.  Also the hostname for WiFi and OTA.
 // Not that the password of an AP must be at least as long as 8 characters.
 #define APNAME "Esp-radio"
+// Maximum number of MQTT reconnects before give-up
+#define MAXMQTTCONNECTS 20
 
 //
 //******************************************************************************************
@@ -202,7 +205,7 @@ void publishIP() ;
 struct ini_struct
 {
   char           mqttbroker[80] ;                          // The name of the MQTT broker server
-                                                           // Example: "mqtt.smallenburg.nl"
+  // Example: "mqtt.smallenburg.nl"
   uint16_t       mqttport ;                                // Port, default 1883
   char           mqttuser[16] ;                            // User for MQTT authentication
   char           mqttpasswd[16] ;                          // Password for MQTT authentication
@@ -235,7 +238,7 @@ int              metacount ;                               // Number of bytes in
 int              datacount ;                               // Counter databytes before metadata
 char             metaline[200] ;                           // Readable line in metadata
 char             streamtitle[150] ;                        // Streamtitle from metadata
-int              bitrate ;                                 // Bitrate in kb/sec            
+int              bitrate ;                                 // Bitrate in kb/sec
 int              metaint = 0 ;                             // Number of databytes between metadata
 int8_t           currentpreset = -1 ;                      // Preset station playing
 char             host[MAXHOSTSIZ] ;                        // The hostname to connect to or file to play
@@ -262,6 +265,7 @@ String           networks ;                                // Found networks
 String           anetworks ;                               // Aceptable networks (present in .ini file)
 uint8_t          num_an ;                                  // Number of acceptable networks in .ini file
 char             testfilename[20] ;                        // File to test (SPIFFS speed)
+uint16_t         mqttcount = 0 ;                           // Counter MAXMQTTCONNECTS
 
 //******************************************************************************************
 // End of lobal data section.                                                              *
@@ -273,98 +277,98 @@ char             testfilename[20] ;                        // File to test (SPIF
 //******************************************************************************************
 class VS1053
 {
-private:
-  uint8_t       cs_pin ;                        // Pin where CS line is connected
-  uint8_t       dcs_pin ;                       // Pin where DCS line is connected
-  uint8_t       dreq_pin ;                      // Pin where DREQ line is connected
-  uint8_t       curvol ;                        // Current volume setting 0..100%    
-  const uint8_t vs1053_chunk_size = 32 ;
-  // SCI Register
-  const uint8_t SCI_MODE          = 0x0 ;
-  const uint8_t SCI_BASS          = 0x2 ;
-  const uint8_t SCI_CLOCKF        = 0x3 ;
-  const uint8_t SCI_AUDATA        = 0x5 ;
-  const uint8_t SCI_WRAM          = 0x6 ;
-  const uint8_t SCI_WRAMADDR      = 0x7 ;
-  const uint8_t SCI_AIADDR        = 0xA ;
-  const uint8_t SCI_VOL           = 0xB ;
-  const uint8_t SCI_AICTRL0       = 0xC ;
-  const uint8_t SCI_AICTRL1       = 0xD ;
-  const uint8_t SCI_num_registers = 0xF ;
-  // SCI_MODE bits
-  const uint8_t SM_SDINEW         = 11 ;        // Bitnumber in SCI_MODE always on
-  const uint8_t SM_RESET          = 2 ;         // Bitnumber in SCI_MODE soft reset
-  const uint8_t SM_CANCEL         = 3 ;         // Bitnumber in SCI_MODE cancel song
-  const uint8_t SM_TESTS          = 5 ;         // Bitnumber in SCI_MODE for tests
-  const uint8_t SM_LINE1          = 14 ;        // Bitnumber in SCI_MODE for Line input
-  SPISettings   VS1053_SPI ;                    // SPI settings for this slave
-  uint8_t       endFillByte ;                   // Byte to send when stopping song
-protected:
-  inline void await_data_request() const
-  {
-    while ( !digitalRead ( dreq_pin ) )
+  private:
+    uint8_t       cs_pin ;                        // Pin where CS line is connected
+    uint8_t       dcs_pin ;                       // Pin where DCS line is connected
+    uint8_t       dreq_pin ;                      // Pin where DREQ line is connected
+    uint8_t       curvol ;                        // Current volume setting 0..100%
+    const uint8_t vs1053_chunk_size = 32 ;
+    // SCI Register
+    const uint8_t SCI_MODE          = 0x0 ;
+    const uint8_t SCI_BASS          = 0x2 ;
+    const uint8_t SCI_CLOCKF        = 0x3 ;
+    const uint8_t SCI_AUDATA        = 0x5 ;
+    const uint8_t SCI_WRAM          = 0x6 ;
+    const uint8_t SCI_WRAMADDR      = 0x7 ;
+    const uint8_t SCI_AIADDR        = 0xA ;
+    const uint8_t SCI_VOL           = 0xB ;
+    const uint8_t SCI_AICTRL0       = 0xC ;
+    const uint8_t SCI_AICTRL1       = 0xD ;
+    const uint8_t SCI_num_registers = 0xF ;
+    // SCI_MODE bits
+    const uint8_t SM_SDINEW         = 11 ;        // Bitnumber in SCI_MODE always on
+    const uint8_t SM_RESET          = 2 ;         // Bitnumber in SCI_MODE soft reset
+    const uint8_t SM_CANCEL         = 3 ;         // Bitnumber in SCI_MODE cancel song
+    const uint8_t SM_TESTS          = 5 ;         // Bitnumber in SCI_MODE for tests
+    const uint8_t SM_LINE1          = 14 ;        // Bitnumber in SCI_MODE for Line input
+    SPISettings   VS1053_SPI ;                    // SPI settings for this slave
+    uint8_t       endFillByte ;                   // Byte to send when stopping song
+  protected:
+    inline void await_data_request() const
     {
+      while ( !digitalRead ( dreq_pin ) )
+      {
         yield() ;                               // Very short delay
+      }
     }
-  }
-  
-  inline void control_mode_on() const
-  {
-    SPI.beginTransaction ( VS1053_SPI ) ;       // Prevent other SPI users
-    digitalWrite ( dcs_pin, HIGH ) ;            // Bring slave in control mode
-    digitalWrite ( cs_pin, LOW ) ;
-  }
 
-  inline void control_mode_off() const
-  {
-    digitalWrite ( cs_pin, HIGH ) ;             // End control mode
-    SPI.endTransaction() ;                      // Allow other SPI users
-  }
+    inline void control_mode_on() const
+    {
+      SPI.beginTransaction ( VS1053_SPI ) ;       // Prevent other SPI users
+      digitalWrite ( dcs_pin, HIGH ) ;            // Bring slave in control mode
+      digitalWrite ( cs_pin, LOW ) ;
+    }
 
-  inline void data_mode_on() const
-  {
-    SPI.beginTransaction ( VS1053_SPI ) ;       // Prevent other SPI users
-    digitalWrite ( cs_pin, HIGH ) ;             // Bring slave in data mode
-    digitalWrite ( dcs_pin, LOW ) ;
-  }
+    inline void control_mode_off() const
+    {
+      digitalWrite ( cs_pin, HIGH ) ;             // End control mode
+      SPI.endTransaction() ;                      // Allow other SPI users
+    }
 
-  inline void data_mode_off() const
-  {
-    digitalWrite ( dcs_pin, HIGH ) ;            // End data mode
-    SPI.endTransaction() ;                      // Allow other SPI users
-  }
-  
-  uint16_t read_register ( uint8_t _reg ) const ;
-  void     write_register ( uint8_t _reg, uint16_t _value ) const ;
-  void     sdi_send_buffer ( uint8_t* data, size_t len ) ;
-  void     sdi_send_fillers ( size_t length ) ;
-  void     wram_write ( uint16_t address, uint16_t data ) ;
-  uint16_t wram_read ( uint16_t address ) ;
+    inline void data_mode_on() const
+    {
+      SPI.beginTransaction ( VS1053_SPI ) ;       // Prevent other SPI users
+      digitalWrite ( cs_pin, HIGH ) ;             // Bring slave in data mode
+      digitalWrite ( dcs_pin, LOW ) ;
+    }
 
-public:
-  // Constructor.  Only sets pin values.  Doesn't touch the chip.  Be sure to call begin()!
-  VS1053 ( uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin ) ;
-  void     begin() ;                                   // Begin operation.  Sets pins correctly,
-                                                       // and prepares SPI bus.
-  void     startSong() ;                               // Prepare to start playing. Call this each
-                                                       // time a new song starts.
-  void     playChunk ( uint8_t* data, size_t len ) ;   // Play a chunk of data.  Copies the data to
-                                                       // the chip.  Blocks until complete.
-  void     stopSong() ;                                // Finish playing a song. Call this after
-                                                       // the last playChunk call.
-  void     setVolume ( uint8_t vol ) ;                 // Set the player volume.Level from 0-100,
-                                                       // higher is louder.
-  void     setTone ( uint8_t* rtone ) ;                // Set the player baas/treble, 4 nibbles for
-                                                       // treble gain/freq and bass gain/freq
-  uint8_t  getVolume() ;                               // Get the currenet volume setting.
-                                                       // higher is louder.
-  void     printDetails ( const char *header ) ;       // Print configuration details to serial output.
-  void     softReset() ;                               // Do a soft reset
-  bool     testComm ( const char *header ) ;           // Test communication with module
-  inline bool data_request() const
-  {
-    return ( digitalRead ( dreq_pin ) == HIGH ) ;
-  }
+    inline void data_mode_off() const
+    {
+      digitalWrite ( dcs_pin, HIGH ) ;            // End data mode
+      SPI.endTransaction() ;                      // Allow other SPI users
+    }
+
+    uint16_t read_register ( uint8_t _reg ) const ;
+    void     write_register ( uint8_t _reg, uint16_t _value ) const ;
+    void     sdi_send_buffer ( uint8_t* data, size_t len ) ;
+    void     sdi_send_fillers ( size_t length ) ;
+    void     wram_write ( uint16_t address, uint16_t data ) ;
+    uint16_t wram_read ( uint16_t address ) ;
+
+  public:
+    // Constructor.  Only sets pin values.  Doesn't touch the chip.  Be sure to call begin()!
+    VS1053 ( uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin ) ;
+    void     begin() ;                                   // Begin operation.  Sets pins correctly,
+    // and prepares SPI bus.
+    void     startSong() ;                               // Prepare to start playing. Call this each
+    // time a new song starts.
+    void     playChunk ( uint8_t* data, size_t len ) ;   // Play a chunk of data.  Copies the data to
+    // the chip.  Blocks until complete.
+    void     stopSong() ;                                // Finish playing a song. Call this after
+    // the last playChunk call.
+    void     setVolume ( uint8_t vol ) ;                 // Set the player volume.Level from 0-100,
+    // higher is louder.
+    void     setTone ( uint8_t* rtone ) ;                // Set the player baas/treble, 4 nibbles for
+    // treble gain/freq and bass gain/freq
+    uint8_t  getVolume() ;                               // Get the currenet volume setting.
+    // higher is louder.
+    void     printDetails ( const char *header ) ;       // Print configuration details to serial output.
+    void     softReset() ;                               // Do a soft reset
+    bool     testComm ( const char *header ) ;           // Test communication with module
+    inline bool data_request() const
+    {
+      return ( digitalRead ( dreq_pin ) == HIGH ) ;
+    }
 } ;
 
 //******************************************************************************************
@@ -379,7 +383,7 @@ VS1053::VS1053 ( uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin ) :
 uint16_t VS1053::read_register ( uint8_t _reg ) const
 {
   uint16_t result ;
-  
+
   control_mode_on() ;
   SPI.write ( 3 ) ;                                // Read operation
   SPI.write ( _reg ) ;                             // Register to write (0..0xF)
@@ -396,7 +400,7 @@ void VS1053::write_register ( uint8_t _reg, uint16_t _value ) const
   control_mode_on( );
   SPI.write ( 2 ) ;                                // Write operation
   SPI.write ( _reg ) ;                             // Register to write (0..0xF)
-  SPI.write16 ( _value ) ;                         // Send 16 bits data  
+  SPI.write16 ( _value ) ;                         // Send 16 bits data
   await_data_request() ;
   control_mode_off() ;
 }
@@ -404,7 +408,7 @@ void VS1053::write_register ( uint8_t _reg, uint16_t _value ) const
 void VS1053::sdi_send_buffer ( uint8_t* data, size_t len )
 {
   size_t chunk_length ;                            // Length of chunk 32 byte or shorter
-  
+
   data_mode_on() ;
   while ( len )                                    // More to do?
   {
@@ -424,7 +428,7 @@ void VS1053::sdi_send_buffer ( uint8_t* data, size_t len )
 void VS1053::sdi_send_fillers ( size_t len )
 {
   size_t chunk_length ;                            // Length of chunk 32 byte or shorter
-  
+
   data_mode_on() ;
   while ( len )                                    // More to do?
   {
@@ -451,7 +455,7 @@ void VS1053::wram_write ( uint16_t address, uint16_t data )
 
 uint16_t VS1053::wram_read ( uint16_t address )
 {
-  write_register ( SCI_WRAMADDR, address ) ;            // Start reading from WRAM 
+  write_register ( SCI_WRAMADDR, address ) ;            // Start reading from WRAM
   return read_register ( SCI_WRAM ) ;                   // Read back result
 }
 
@@ -464,7 +468,7 @@ bool VS1053::testComm ( const char *header )
   int       i ;                                         // Loop control
   uint16_t  r1, r2, cnt = 0 ;
   uint16_t  delta = 300 ;                               // 3 for fast SPI
-  
+
   if ( !digitalRead ( dreq_pin ) )
   {
     dbgprint ( "VS1053 not properly installed!" ) ;
@@ -547,7 +551,7 @@ void VS1053::setVolume ( uint8_t vol )
   // Set volume.  Both left and right.
   // Input value is 0..100.  100 is the loudest.
   uint16_t value ;                                      // Value to send to SCI_VOL
-  
+
   if ( vol != curvol )
   {
     curvol = vol ;                                      // Save for later use
@@ -562,7 +566,7 @@ void VS1053::setTone ( uint8_t *rtone )                 // Set bass/treble (4 ni
   // Set tone characteristics.  See documentation for the 4 nibbles.
   uint16_t value = 0 ;                                  // Value to send to SCI_BASS
   int      i ;                                          // Loop control
-  
+
   for ( i = 0 ; i < 4 ; i++ )
   {
     value = ( value << 4 ) | rtone[i] ;                 // Shift next nibble in
@@ -589,7 +593,7 @@ void VS1053::stopSong()
 {
   uint16_t modereg ;                     // Read from mode register
   int      i ;                           // Loop control
-  
+
   sdi_send_fillers ( 2052 ) ;
   delay ( 10 ) ;
   write_register ( SCI_MODE, _BV ( SM_SDINEW ) | _BV ( SM_CANCEL ) ) ;
@@ -670,12 +674,12 @@ inline uint16_t ringavail()
 void putring ( uint8_t b )                 // Put one byte in the ringbuffer
 {
   // No check on available space.  See ringspace()
-  *(ringbuf+rbwindex) = b ;           // Put byte in ringbuffer
+  *(ringbuf + rbwindex) = b ;         // Put byte in ringbuffer
   if ( ++rbwindex == RINGBFSIZ )      // Increment pointer and
   {
     rbwindex = 0 ;                    // wrap at end
   }
-  rcount++ ;                          // Count number of bytes in the 
+  rcount++ ;                          // Count number of bytes in the
 }
 
 
@@ -690,7 +694,7 @@ uint8_t getring()
     rbrindex = 0 ;                    // wrap at end
   }
   rcount-- ;                          // Count is now one less
-  return *(ringbuf+rbrindex) ;        // return the oldest byte
+  return *(ringbuf + rbrindex) ;      // return the oldest byte
 }
 
 //******************************************************************************************
@@ -733,7 +737,7 @@ char* dbgprint ( const char* format, ... )
 //*********************4********************************************************************
 const char* getEncryptionType ( int thisType )
 {
-  switch (thisType) 
+  switch (thisType)
   {
     case ENC_TYPE_WEP:
       return "WEP " ;
@@ -755,17 +759,17 @@ const char* getEncryptionType ( int thisType )
 //******************************************************************************************
 // List the available networks and select the strongest.                                   *
 // Acceptable networks are those who have a "SSID.pw" file in the SPIFFS.                  *
-// SSIDs of available networks will be saved for use in webinterface.                      * 
+// SSIDs of available networks will be saved for use in webinterface.                      *
 //******************************************************************************************
 void listNetworks()
 {
   int         maxsig = -1000 ;   // Used for searching strongest WiFi signal
   int         newstrength ;
-  byte        encryption ;       // TKIP(WPA)=2, WEP=5, CCMP(WPA)=4, NONE=7, AUTO=8 
+  byte        encryption ;       // TKIP(WPA)=2, WEP=5, CCMP(WPA)=4, NONE=7, AUTO=8
   const char* acceptable ;       // Netwerk is acceptable for connection
   int         i ;                // Loop control
   String      sassid ;           // Search string in anetworks
-  
+
   // scan for nearby networks:
   dbgprint ( "* Scan Networks *" ) ;
   int numSsid = WiFi.scanNetworks() ;
@@ -776,7 +780,7 @@ void listNetworks()
   }
   // print the list of networks seen:
   dbgprint ( "Number of available networks: %d",
-            numSsid ) ;
+             numSsid ) ;
   // Print the network number and name for each network found and
   // find the strongest acceptable network
   for ( i = 0 ; i < numSsid ; i++ )
@@ -867,7 +871,7 @@ uint8_t anagetsw ( uint16_t v )
   int      i ;                                    // Loop control
   int      oldmindist = 1000 ;                    // Detection least difference
   int      newdist ;                              // New found difference
-  uint8_t  sw = 0 ;                               // Number of switch detected (0 or 1..3)   
+  uint8_t  sw = 0 ;                               // Number of switch detected (0 or 1..3)
 
   if ( v > analogrest )                           // Inactive level?
   {
@@ -877,7 +881,7 @@ uint8_t anagetsw ( uint16_t v )
       if ( newdist < oldmindist )                  // New least difference?
       {
         oldmindist = newdist ;                     // Yes, remember
-        sw = i + 1 ;                               // Remember switch 
+        sw = i + 1 ;                               // Remember switch
       }
     }
   }
@@ -897,7 +901,7 @@ void testfile ( char* fspec )
   uint32_t len, savlen ;                               // File length
   uint32_t t0, t1 ;                                    // For time test
   uint32_t t_error = 0 ;                               // Number of slow reads
-  
+
   t0 = millis() ;                                      // Timestamp at start
   t1 = t0 ;                                            // Prevent uninitialized value
   path = String ( "/" ) + String ( fspec ) ;           // Form full path
@@ -936,15 +940,15 @@ void timer100()
 {
   static int     count10sec = 0 ;                 // Counter for activatie 10 seconds process
   static int     oldval2 = HIGH ;                 // Previous value of digital input button 2
-  #if ( not ( defined ( USETFT ) ) )
+#if ( not ( defined ( USETFT ) ) )
   static int     oldval1 = HIGH ;                 // Previous value of digital input button 1
   static int     oldval3 = HIGH ;                 // Previous value of digital input button 3
-  #endif
+#endif
   int            newval ;                         // New value of digital input switch
   uint16_t       v ;                              // Analog input value 0..1023
   static uint8_t aoldval = 0 ;                    // Previous value of analog input switch
   uint8_t        anewval ;                        // New value of analog input switch (0..3)
-  
+
   if ( ++count10sec == 100  )                     // 10 seconds passed?
   {
     timer10sec() ;                                // Yes, do 10 second procedure
@@ -963,7 +967,7 @@ void timer100()
       }
       return ;
     }
-    #if ( not ( defined ( USETFT ) ) )
+#if ( not ( defined ( USETFT ) ) )
     newval = digitalRead ( BUTTON1 ) ;            // Test if below certain level
     if ( newval != oldval1 )                      // Change?
     {
@@ -988,7 +992,7 @@ void timer100()
       }
       return ;
     }
-    #endif
+#endif
     v = analogRead ( A0 ) ;                       // Read analog value
     anewval = anagetsw ( v ) ;                    // Check analog value for program switches
     if ( anewval != aoldval )                     // Change?
@@ -1003,11 +1007,11 @@ void timer100()
         }
         else if ( anewval == 2 )                  // Button 2?
         {
-          ini_block.newpreset = currentpreset+1 ; // Yes, goto next preset
+          ini_block.newpreset = currentpreset + 1 ; // Yes, goto next preset
         }
         else if ( anewval == 3 )                  // Button 3?
         {
-          ini_block.newpreset = currentpreset-1 ; // Yes, goto previous preset
+          ini_block.newpreset = currentpreset - 1 ; // Yes, goto previous preset
         }
       }
     }
@@ -1091,7 +1095,7 @@ void connecttohost()
   char*       p ;                                   // Pointer in hostname
   char*       pfs ;                                 // Pointer to formatted string
   String      extension ;                           // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
-  
+
   dbgprint ( "Connect to new host %s", host ) ;
   if ( mp3client.connected() )
   {
@@ -1105,7 +1109,7 @@ void connecttohost()
   if ( p )                                          // Portnumber available?
   {
     *p++ = '\0' ;                                   // Remove port from string and point to port
-     port = atoi ( p ) ;                            // Get portnumber as integer
+    port = atoi ( p ) ;                            // Get portnumber as integer
   }
   else
   {
@@ -1130,7 +1134,7 @@ void connecttohost()
     dbgprint ( "Connected to server" ) ;
     // This will send the request to the server. Request metadata.
     mp3client.print ( String ( "GET " ) +
-                      extension +  
+                      extension +
                       " HTTP/1.1\r\n" +
                       "Host: " + host + "\r\n" +
                       "Icy-MetaData:1\r\n" +
@@ -1150,7 +1154,7 @@ void connecttohost()
 bool connectwifi()
 {
   char*  pfs ;                                         // Pointer to formatted string
-  
+
   WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
   WiFi.softAPdisconnect(true) ;
   WiFi.begin ( ini_block.ssid.c_str(),
@@ -1168,9 +1172,9 @@ bool connectwifi()
   }
   pfs = dbgprint ( "IP = %d.%d.%d.%d",
                    WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
-  #if defined ( USETFT )
+#if defined ( USETFT )
   tft.println ( pfs ) ;
-  #endif
+#endif
   return true ;
 }
 
@@ -1201,7 +1205,7 @@ char* readhostfrominifile ( int8_t preset )
   String      linelc ;                                 // Same, but lowercase
   int         inx ;                                    // Position within string
   static char newhost[MAXHOSTSIZ] ;                    // Found host name
-  char*       res = NULL ;                             // Assume not found                                    
+  char*       res = NULL ;                             // Assume not found
 
   path = String ( INIFILENAME ) ;                      // Form full path
   inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
@@ -1221,7 +1225,7 @@ char* readhostfrominifile ( int8_t preset )
           line.remove ( 0, inx + 1 ) ;                 // Yes, remove key
           line = chomp ( line ) ;                      // Remove garbage
           strncpy ( newhost, line.c_str(),             // Save result
-                    sizeof(newhost) ) ; 
+                    sizeof(newhost) ) ;
           res = newhost ;                              // Return new host
           break ;                                      // End the while loop
         }
@@ -1247,7 +1251,7 @@ void readinifile()
   String      path ;                                   // Full file spec as string
   File        inifile ;                                // File containing URL with mp3
   String      line ;                                   // Input line from .ini file
-  
+
   path = String ( INIFILENAME ) ;                      // Form full path
   inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
   if ( inifile )
@@ -1267,14 +1271,14 @@ void readinifile()
 
 
 //******************************************************************************************
-//                            P U B L I S H I P                                            * 
+//                            P U B L I S H I P                                            *
 //******************************************************************************************
 // Publish IP to MQTT broker.                                                              *
 //******************************************************************************************
 void publishIP()
 {
   char     ip[20] ;                             // Hold IP as string
-  
+
   if ( strlen ( ini_block.mqttpubtopic ) )      // Topic to publish?
   {
     // Publish IP-adress.  qos=1, retain=true
@@ -1288,14 +1292,14 @@ void publishIP()
 
 
 //******************************************************************************************
-//                            O N M Q T T C O N N E C T                                    * 
+//                            O N M Q T T C O N N E C T                                    *
 //******************************************************************************************
 // Will be called on connection to the broker.  Subscribe to our topic and publish a topic.*
 //******************************************************************************************
 void onMqttConnect()
 {
   uint16_t packetIdSub ;
-  
+
   dbgprint ( "MQTT Connected to the broker %s", ini_block.mqttbroker ) ;
   packetIdSub = mqttclient.subscribe ( ini_block.mqtttopic, 2 ) ;
   dbgprint ( "Subscribing to %s at QoS 2, packetId = %d ",
@@ -1312,9 +1316,13 @@ void onMqttConnect()
 //******************************************************************************************
 void onMqttDisconnect ( AsyncMqttClientDisconnectReason reason )
 {
-  dbgprint ( "MQTT Disconnected from the broker, reason %d,reconnecting...",
+  dbgprint ( "MQTT Disconnected from the broker, reason %d, reconnecting...",
              reason ) ;
-  mqttclient.connect() ;
+  if ( mqttcount < MAXMQTTCONNECTS )            // Try again?
+  {
+    mqttcount++ ;                               // Yes, count number of tries
+    mqttclient.connect() ;                      // Reconnect
+  }
 }
 
 
@@ -1353,9 +1361,9 @@ void onMqttMessage ( char* topic, char* payload, AsyncMqttClientMessagePropertie
                      size_t len, size_t index, size_t total )
 {
   char*  reply ;                                    // Result from analyzeCmd
-  
+
   // Available properties.qos, properties.dup, properties.retain
-  if ( len >= sizeof(cmd) )                         // Message may not be too long 
+  if ( len >= sizeof(cmd) )                         // Message may not be too long
   {
     len = sizeof(cmd) - 1 ;
   }
@@ -1433,7 +1441,7 @@ void  mk_lsan()
   String      line ;                                   // Input line from .ini file
   String      ssid ;                                   // SSID in line
   int         inx ;                                    // Place of "/"
-  
+
   num_an = 0 ;                                         // Count acceptable networks
   anetworks = "|" ;                                    // Initial value
   path = String ( INIFILENAME ) ;                      // Form full path
@@ -1443,7 +1451,7 @@ void  mk_lsan()
     while ( inifile.available() )
     {
       line = inifile.readStringUntil ( '\n' ) ;        // Read next line
-      ssid = line ;                                    // Copy holds original upper/lower case 
+      ssid = line ;                                    // Copy holds original upper/lower case
       line.toLowerCase() ;                             // Case insensitive
       if ( line.startsWith ( "wifi" ) )                // Line with WiFi spec?
       {
@@ -1454,7 +1462,7 @@ void  mk_lsan()
           dbgprint ( "Added SSID %s to acceptable networks",
                      ssid.c_str() ) ;
           anetworks += ssid ;                          // Add to list
-          anetworks += "|" ;                           // Separator 
+          anetworks += "|" ;                           // Separator
           num_an++ ;                                   // Count number oif acceptable networks
         }
       }
@@ -1509,28 +1517,28 @@ void setup()
   WiFi.persistent ( false ) ;                          // Do not save SSID and password
   WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
   WiFi.mode ( WIFI_STA ) ;                             // This ESP is a station
-  wifi_station_set_hostname ( (char*)"ESP-radio" ) ; 
+  wifi_station_set_hostname ( (char*)"ESP-radio" ) ;
   SPI.begin() ;                                        // Init SPI bus
   // Print some memory and sketch info
   dbgprint ( "Starting ESP Version " VERSION "...  Free memory %d",
              system_get_free_heap_size() ) ;
   dbgprint ( "Sketch size %d, free size %d",
-              ESP.getSketchSize(),
-              ESP.getFreeSketchSpace() ) ;
+             ESP.getSketchSize(),
+             ESP.getFreeSketchSpace() ) ;
   pinMode ( BUTTON2, INPUT_PULLUP ) ;                  // Input for control button 2
   mp3.begin() ;                                        // Initialize VS1053 player
-  # if defined ( USETFT )
+# if defined ( USETFT )
   tft.begin() ;                                        // Init TFT interface
   tft.fillRect ( 0, 0, 160, 128, BLACK ) ;             // Clear screen does not work when rotated
   tft.setRotation ( 3 ) ;                              // Use landscape format
   tft.clearScreen() ;                                  // Clear screen
   tft.setTextSize ( 1 ) ;                              // Small character font
-  tft.setTextColor ( WHITE ) ;  
+  tft.setTextColor ( WHITE ) ;
   tft.println ( "Starting" ) ;
-  #else
+#else
   pinMode ( BUTTON1, INPUT_PULLUP ) ;                  // Input for control button 1
   pinMode ( BUTTON3, INPUT_PULLUP ) ;                  // Input for control button 3
-  #endif
+#endif
   delay(10);
   streamtitle[0] = '\0' ;                              // No title yet
   hostreq = false ;                                    // No host yet
@@ -1552,7 +1560,7 @@ void setup()
     {
       // Initialize the MQTT client
       WiFi.hostByName ( ini_block.mqttbroker,
-                        mqtt_server_IP ) ;             // Lookup IP of MQTT server 
+                        mqtt_server_IP ) ;             // Lookup IP of MQTT server
       mqttclient.onConnect ( onMqttConnect ) ;
       mqttclient.onDisconnect ( onMqttDisconnect ) ;
       mqttclient.onSubscribe ( onMqttSubscribe ) ;
@@ -1595,9 +1603,9 @@ void setup()
 //******************************************************************************************
 void loop()
 {
-  char*  p ;                                          // Temporary pointer to string 
-  
-  // Try to keep the ringbuffer filled up by adding as much bytes as possible 
+  char*  p ;                                          // Temporary pointer to string
+
+  // Try to keep the ringbuffer filled up by adding as much bytes as possible
   while ( ringspace() && mp3client.available() )
   {
     putring ( mp3client.read() ) ;                    // Yes, save one byte in ringbuffer
@@ -1629,7 +1637,7 @@ void loop()
     {
       dbgprint ( "Preset %d found in .ini file",      // Yes
                  ini_block.newpreset ) ;
-      strcpy ( host, p ) ;                            // Save it for storage and selection later 
+      strcpy ( host, p ) ;                            // Save it for storage and selection later
       hostreq = true ;                                // Force this station as new preset
     }
     else
@@ -1641,7 +1649,6 @@ void loop()
   if ( hostreq )
   {
     currentpreset = ini_block.newpreset ;             // Remember current preset
-    dbgprint ( "Remember preset %d", currentpreset ) ;
     connecttohost() ;                                 // Switch to new host
     hostreq = false ;
   }
@@ -1675,6 +1682,39 @@ void loop()
 
 
 //******************************************************************************************
+//                            C H K H D R L I N E                                          *
+//******************************************************************************************
+// Check if a line in the header is a reasonable headerline.                               *
+// Normally it should contain something like "icy-xxxx:abcdef".                            *
+//******************************************************************************************
+bool chkhdrline ( const char* str )
+{
+  char    b ;                                         // Byte examined
+  int     len = 0 ;                                   // Lengte van de string
+
+  while ( ( b = *str++ ) )                            // Search to end of string
+  {
+    len++ ;                                           // Update string length
+    if ( ! isalpha ( b ) )                            // Alpha (a-z, A-Z)
+    {
+      if ( b != '-' )                                 // Minus sign is allowed
+      {
+        if ( b == ':' )                               // Found a colon?
+        {
+          return ( ( len > 5 ) && ( len < 50 ) ) ;    // Yes, okay if length is okay
+        }
+        else
+        {
+          return false ;                              // Not a legal character
+        }
+      }
+    }
+  }
+  return false ;                                      // End of string without colon
+}
+
+
+//******************************************************************************************
 //                           H A N D L E B Y T E                                           *
 //******************************************************************************************
 // Handle the next byte of data from server.                                               *
@@ -1684,7 +1724,7 @@ void loop()
 void handlebyte ( uint8_t b )
 {
   static uint16_t  metaindex ;                          // Index in metaline
-  static bool      firstmetabyte ;                      // True if first metabyte (counter) 
+  static bool      firstmetabyte ;                      // True if first metabyte (counter)
   static int       LFcount ;                            // Detection of end of header
   static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
   static int       chunkcount = 0 ;                     // Data in chunk
@@ -1692,7 +1732,7 @@ void handlebyte ( uint8_t b )
   char*            p ;                                  // Pointer in metaline
   int              i ;                                  // Loop control
 
-  
+
   if ( datamode == INIT )                              // Initialize for header receive
   {
     metaint = 0 ;                                      // No metaint found
@@ -1714,8 +1754,8 @@ void handlebyte ( uint8_t b )
         for ( i = 0 ; i < 32 ; i += 8 )                // Print 4 lines
         {
           dbgprint ( "%02X %02X %02X %02X %02X %02X %02X %02X",
-                     buf[i],   buf[i+1], buf[i+2], buf[i+3],
-                     buf[i+4], buf[i+5], buf[i+6], buf[i+7] ) ;
+                     buf[i],   buf[i + 1], buf[i + 2], buf[i + 3],
+                     buf[i + 4], buf[i + 5], buf[i + 6], buf[i + 7] ) ;
         }
       }
       mp3.playChunk ( buf, chunkcount ) ;              // Yes, send to player
@@ -1737,7 +1777,7 @@ void handlebyte ( uint8_t b )
     }
     return ;
   }
-  if ( datamode == HEADER )                            // Handle next byte of MP3 header 
+  if ( datamode == HEADER )                            // Handle next byte of MP3 header
   {
     if ( ( b > 0x7F ) ||                               // Ignore unprintable characters
          ( b == '\r' ) ||                              // Ignore CR
@@ -1750,28 +1790,32 @@ void handlebyte ( uint8_t b )
       LFcount++ ;                                      // Count linefeeds
       metaline[metaindex] = '\0' ;                     // Mark end of string
       metaindex = 0 ;                                  // Reset for next line
-      dbgprint ( metaline ) ;                          // Show it
-      if ( ( p = strstr ( metaline, "icy-br:" ) ) )
+      if ( chkhdrline ( metaline ) )                   // Reasonable input?
       {
-        bitrate = atoi ( p + 7 ) ;                     // Found bitrate tag, read the bitrate
-        if ( bitrate == 0 )                            // For Ogg br is like "Quality 2"
+        dbgprint ( metaline ) ;                        // Yes, Show it
+        if ( ( p = strstr ( metaline, "icy-br:" ) ) )
         {
-          bitrate = 87 ;                               // Dummy bitrate
+          bitrate = atoi ( p + 7 ) ;                   // Found bitrate tag, read the bitrate
+          if ( bitrate == 0 )                          // For Ogg br is like "Quality 2"
+          {
+            bitrate = 87 ;                             // Dummy bitrate
+          }
+        }
+        else if ( (  p = strstr ( metaline, "icy-metaint:" ) ) )
+        {
+          metaint = atoi ( p + 12 ) ;                  // Found metaint tag, read the value
+        }
+        else if ( ( p = strstr ( metaline, "icy-name:" ) ) )
+        {
+          strncpy ( sname, p + 9, sizeof ( sname ) ) ; // Found station name, save it, prevent overflow
+          sname[sizeof(sname) - 1] = '\0' ;
+          displayinfo ( sname, 60, YELLOW ) ;          // Show title at position 60
         }
       }
-      else if ( (  p = strstr ( metaline, "icy-metaint:" ) ) )
+      if ( LFcount == 2 )
       {
-        metaint = atoi ( p + 12 ) ;                    // Found metaint tag, read the value
-      }
-      else if ( ( p = strstr ( metaline, "icy-name:" ) ) )
-      {
-        strncpy ( sname, p + 9, sizeof ( sname ) ) ;   // Found station name, save it, prevent overflow
-        sname[sizeof(sname)-1] = '\0' ;
-        displayinfo ( sname, 60, YELLOW ) ;            // Show title at position 60
-      }
-      if ( ( LFcount == 2 ) && ( bitrate != 0 ) )
-      {
-        dbgprint ( "Switch to DATA" ) ;
+        dbgprint ( "Switch to DATA, bitrate is %d",    // Show bitrate
+                   bitrate ) ;
         datamode = DATA ;                              // Expecting data now
         datacount = metaint ;                          // Number of bytes before first metadata
         chunkcount = 0 ;                               // Reset chunkcount
@@ -1799,7 +1843,7 @@ void handlebyte ( uint8_t b )
       if ( metacount > 1 )
       {
         dbgprint ( "Metadata block %d bytes",
-                   metacount-1 ) ;                     // Most of the time there are zero bytes of metadata
+                   metacount - 1 ) ;                   // Most of the time there are zero bytes of metadata
       }
     }
     else
@@ -1810,7 +1854,7 @@ void handlebyte ( uint8_t b )
         metaindex++ ;
       }
     }
-    if ( --metacount == 0 )                         
+    if ( --metacount == 0 )
     {
       if ( metaindex )                                // Any info present?
       {
@@ -1820,7 +1864,7 @@ void handlebyte ( uint8_t b )
         // Sometimes it is just other info like:
         // "StreamTitle='60s 03 05 Magic60s';StreamUrl='';"
         // Isolate the StreamTitle, remove leading and trailing quotes if present.
-        showstreamtitle ( metaline ) ;                // Show artist and title if present in metadata 
+        showstreamtitle ( metaline ) ;                // Show artist and title if present in metadata
       }
       datacount = metaint ;                           // Reset data count
       chunkcount = 0 ;                                // Reset chunkcount
@@ -1918,7 +1962,7 @@ void handleFS ( AsyncWebServerRequest *request )
   ct = getContentType ( fnam ) ;                        // Get content type
   if ( ct == "" )                                       // Empty is illegal
   {
-    request->send ( 404, "text/plain", "File not found" ) ;  
+    request->send ( 404, "text/plain", "File not found" ) ;
   }
   else
   {
@@ -1941,7 +1985,7 @@ void getpresets ( AsyncWebServerRequest *request )
   int                 inx ;                            // Position of search char in line
   int                 i ;                              // Loop control
   AsyncResponseStream *response ;                      // Response to client
-  
+
   response = request->beginResponseStream ( "text/plain" ) ;
   path = String ( INIFILENAME ) ;                      // Form full path
   inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
@@ -1954,7 +1998,7 @@ void getpresets ( AsyncWebServerRequest *request )
       linelc.toLowerCase() ;                           // Set to lowercase
       if ( linelc.startsWith ( "preset_" ) )           // Found the key?
       {
-        i = linelc.substring(7,9).toInt() ;            // Get index 00..99
+        i = linelc.substring(7, 9).toInt() ;           // Get index 00..99
         inx = line.indexOf ( "#" ) ;                   // Get position of "#"
         if ( inx > 0 )                                 // Equal sign present?
         {
@@ -1985,12 +2029,12 @@ void getpresets ( AsyncWebServerRequest *request )
 char* analyzeCmd ( const char* str )
 {
   char*  value ;                                 // Points to value after equalsign in command
-  
+
   value = strstr ( str, "=" ) ;                  // See if command contains a "="
   if ( value )
   {
     *value = '\0' ;                              // Separate command from value
-    value++ ;                                    // Points to value after "=" 
+    value++ ;                                    // Points to value after "="
   }
   else
   {
@@ -2065,7 +2109,7 @@ char* analyzeCmd ( const char* par, const char* val )
   uint8_t            oldvol ;                         // Current volume
   bool               relative ;                       // Relative argument (+ or -)
   int                inx ;                            // Index in string
-  
+
   strcpy ( reply, "Command accepted" ) ;              // Default reply
   argument = chomp ( par ) ;                          // Get the argument
   if ( argument.length() == 0 )                       // Lege commandline (comment)?
@@ -2125,21 +2169,21 @@ char* analyzeCmd ( const char* par, const char* val )
       dbgprint ( "Preset set to %d", ini_block.newpreset ) ;
     }
   }
-  else if ( argument =="stop" )                       // Stop requested
+  else if ( argument == "stop" )                      // Stop requested
   {
     stopreq = true ;                                  // Force stop playing
   }
-  else if ( argument =="station" )                    // Station in the form address:port
+  else if ( argument == "station" )                   // Station in the form address:port
   {
-    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later 
+    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "New preset station %s accepted",       // Format reply
               host ) ;
   }
-  else if ( argument =="play" )                       // Play standalone mp3 file requested?
+  else if ( argument == "play" )                      // Play standalone mp3 file requested?
   {
-    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later 
+    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later
     playreq = true ;                                  // Force this mp3 to be played
     sprintf ( reply,
               "Mp3-file to play %s accepted",         // Format reply
@@ -2157,7 +2201,7 @@ char* analyzeCmd ( const char* par, const char* val )
   else if ( argument == "testfile" )                  // Testfile command?
   {
     strncpy ( testfilename, value.c_str(),
-                sizeof(testfilename) ) ;              // Yes, set file to test accordingly
+              sizeof(testfilename) ) ;              // Yes, set file to test accordingly
   }
   else if ( argument == "test" )                      // Test command
   {
@@ -2237,9 +2281,9 @@ char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.ssid = value.substring ( 0, inx ) ;   // Only one.  Set as the strongest
     }
-    if ( value.substring ( 0, inx ) == ini_block.ssid ) 
+    if ( value.substring ( 0, inx ) == ini_block.ssid )
     {
-      ini_block.passwd = value.substring ( inx+1 ) ;  // Yes, set password
+      ini_block.passwd = value.substring ( inx + 1 ) ; // Yes, set password
     }
   }
   else if ( argument == "getnetworks" )               // List all WiFi networks?
@@ -2276,7 +2320,7 @@ void handleCmd ( AsyncWebServerRequest *request )
   uint32_t           t ;                              // For time test
   int                params ;                         // Number of params
   File               f ;                              // Handle for writing /announcer.ini to SPIFFS
-  
+
   t = millis() ;                                      // Timestamp at start
   params = request->params() ;                        // Get number of arguments
   if ( params == 0 )                                  // Any arguments
@@ -2297,7 +2341,7 @@ void handleCmd ( AsyncWebServerRequest *request )
   argument = p->name() ;                              // Get the argument
   argument.toLowerCase() ;                            // Force to lower case
   value = p->value() ;                                // Get the specified value
-    // For the "save" command, the contents is the value of the next parameter
+  // For the "save" command, the contents is the value of the next parameter
   if ( argument.startsWith ( "save" ) && ( params > 1 ) )
   {
     reply = "Error saving " INIFILENAME ;             // Default reply
@@ -2321,13 +2365,13 @@ void handleCmd ( AsyncWebServerRequest *request )
   }
   else
   {
-    reply = analyzeCmd ( argument.c_str(),            // Analyze it 
+    reply = analyzeCmd ( argument.c_str(),            // Analyze it
                          value.c_str() ) ;
   }
   request->send ( 200, "text/plain", reply ) ;        // Send the reply
   t = millis() - t ;
   // If it takes too long to send a reply, we run into the "LmacRxBlk:1"-problem.
-  // Reset the ESP8266..... 
+  // Reset the ESP8266.....
   if ( t > 8000 )
   {
     ESP.restart() ;                                   // Last resource
