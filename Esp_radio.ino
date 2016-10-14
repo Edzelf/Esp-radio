@@ -102,6 +102,7 @@
 // 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 // 11-10-2016, ES: Allow stations that have no bitrate in header like icecast.err.ee/raadio2.mp3.
+// 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
 //
 // Define the version number:
 #define VERSION "11-oct-2016"
@@ -1296,11 +1297,16 @@ void publishIP()
 //******************************************************************************************
 // Will be called on connection to the broker.  Subscribe to our topic and publish a topic.*
 //******************************************************************************************
-void onMqttConnect()
+void onMqttConnect( bool sessionPresent )
 {
-  uint16_t packetIdSub ;
+  uint16_t    packetIdSub ;
+  const char* present = "is" ;
 
-  dbgprint ( "MQTT Connected to the broker %s", ini_block.mqttbroker ) ;
+  if ( !sessionPresent )
+  {
+    present = "is not" ;
+  }
+  dbgprint ( "MQTT Connected to the broker %s, session %s present", ini_block.mqttbroker, sessionPresent ) ;
   packetIdSub = mqttclient.subscribe ( ini_block.mqtttopic, 2 ) ;
   dbgprint ( "Subscribing to %s at QoS 2, packetId = %d ",
              ini_block.mqtttopic,
@@ -1520,7 +1526,8 @@ void setup()
   wifi_station_set_hostname ( (char*)"ESP-radio" ) ;
   SPI.begin() ;                                        // Init SPI bus
   // Print some memory and sketch info
-  dbgprint ( "Starting ESP Version " VERSION "...  Free memory %d",
+  dbgprint ( "Starting ESP Version %s...  Free memory %d",
+             VERSION,
              system_get_free_heap_size() ) ;
   dbgprint ( "Sketch size %d, free size %d",
              ESP.getSketchSize(),
