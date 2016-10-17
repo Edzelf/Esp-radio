@@ -62,6 +62,7 @@
 // D3       GPIO0    0 FLASH        -                   -                    Control button "Next station"
 // D4       GPIO2    2              pin 3 (D/C)         -                    (OR)Control button "Station 1"
 // D5       GPIO14  14 SCLK         pin 5 (CLK)         pin 5 SCK            -
+// D6       GPIO12  12 MISO         -                   pin 7 MISO           -
 // D7       GPIO13  13 MOSI         pin 4 (DIN)         pin 6 MOSI           -
 // D8       GPIO15  15              pin 2 (CS)          -                    (OR)Control button "Previous station"
 // D9       GPI03    3 RXD0         -                   -                    Reserved serial input
@@ -105,7 +106,7 @@
 // 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
 //
 // Define the version number:
-#define VERSION "11-oct-2016"
+#define VERSION "14-oct-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -206,7 +207,6 @@ void publishIP() ;
 struct ini_struct
 {
   char           mqttbroker[80] ;                          // The name of the MQTT broker server
-  // Example: "mqtt.smallenburg.nl"
   uint16_t       mqttport ;                                // Port, default 1883
   char           mqttuser[16] ;                            // User for MQTT authentication
   char           mqttpasswd[16] ;                          // Password for MQTT authentication
