@@ -25,6 +25,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 22-oct-2016: Correction mute/unmute.
 - 14-oct-2016: Update for AsyncMqttClient version 0.5.0. Added extra documentation for MQTT.
 - 11-oct-2016: Allow stations that do not specify bitrate.  Allow standalone MP3s. 
 - 04-oct-2016: Version with MQTT and configuration in radio.ini file.
