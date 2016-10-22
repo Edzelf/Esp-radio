@@ -76,10 +76,11 @@
 // The reset circuit is a circuit with 2 diodes to GPIO5 and GPIO16 and a resistor to ground
 // (wired OR gate) because there was not a free GPIO output available for this function.
 // This circuit is included in the documentation.
-// Issue:
+// Issues:
 // Webserver produces error "LmacRxBlk:1" after some time.  After that it will work very slow.
 // The program will reset the ESP8266 in such a case.  Now we have switched to async webserver,
 // the problem still exists, but the program will not crash anymore.
+// Upload to ESP8266 not reliable.
 //
 // 31-03-2016, ES: First set-up.
 // 01-04-2016, ES: Detect missing VS1053 at start-up.
@@ -104,9 +105,10 @@
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 // 11-10-2016, ES: Allow stations that have no bitrate in header like icecast.err.ee/raadio2.mp3.
 // 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
+// 22-10-2016, ES: Correction mute/unmute
 //
 // Define the version number:
-#define VERSION "14-oct-2016"
+#define VERSION "22-oct-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -167,7 +169,7 @@ extern "C"
 // Maximal length of the URL of a host
 #define MAXHOSTSIZ 128
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
-#define RINGBFSIZ 20000
+#define RINGBFSIZ 18000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
@@ -1659,7 +1661,6 @@ void loop()
     connecttohost() ;                                 // Switch to new host
     hostreq = false ;
   }
-  mp3.setVolume ( ini_block.reqvol ) ;                // Set to requested volume
   if ( reqtone )                                      // Request to change tone?
   {
     reqtone = false ;
