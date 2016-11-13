@@ -275,10 +275,9 @@ char             testfilename[20] ;                        // File to test (SPIF
 uint16_t         mqttcount = 0 ;                           // Counter MAXMQTTCONNECTS
 int              buttonholdtime = 0;                       // To detect long button presses content = n times 100 msec
 int              maxPreset = -1;                           // Highest preset number used for cycling through channels
-bool             sleep = false;                            // sleep mode?
 
 //******************************************************************************************
-// End of lobal data section.                                                              *
+// End of global data section.                                                              *
 //******************************************************************************************
 //******************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                              *
@@ -976,13 +975,13 @@ void timer100()
         buttonholdtime = 1;
         return ;
       }
-      else 
-      {                                               // Button released
+      else
+      { // Button released
         if (buttonholdtime > 0)
         {
-          if (muteflag)                               // Muted? 
+          if (muteflag)                               // Muted?
           {
-            if(buttonholdtime > 20)                   // Just muted and released button?
+            if (buttonholdtime > 20)                  // Just muted and released button?
             {
               buttonholdtime = 0;
               return ;
@@ -996,32 +995,32 @@ void timer100()
           }
           else                                         // Not muted, change channel
           {
-            if (buttonholdtime < 3) 
-            {                                          // Short press = forward
+            if (buttonholdtime < 3)
+            { // Short press = forward
               ini_block.newpreset = currentpreset + 1 ;// Goto next preset station
               dbgprint ( "Digital button 2 pushed short = forward" ) ;
               muteflag = false;
-            } 
-            else if (buttonholdtime < 20) 
-            {                                          // Long press between 300 ms and 2 sec = backwards
+            }
+            else if (buttonholdtime < 20)
+            { // Long press between 300 ms and 2 sec = backwards
               ini_block.newpreset = currentpreset - 1; // Goto previous preset station
               dbgprint ( "Digital button 2 pushed long = backward" ) ;
               muteflag = false;
-            } 
+            }
           }
           buttonholdtime = 0;
         }
       }
       return ;
     }
-    else 
-    {                                             // newval == oldval2 -> no change
+    else
+    { // newval == oldval2 -> no change
       if ( newval == LOW ) {                      // If button is still pushed
-        if (buttonholdtime > 0) 
+        if (buttonholdtime > 0)
         {
           buttonholdtime++;
         }
-        if (buttonholdtime >= 20) 
+        if (buttonholdtime >= 20)
         {
           muteflag = true;
         }
@@ -1683,97 +1682,93 @@ void setup()
 //******************************************************************************************
 void loop()
 {
-  if (!sleep) {
-    char*  p ;                                          // Temporary pointer to string
+  char*  p ;                                          // Temporary pointer to string
 
-    // Try to keep the ringbuffer filled up by adding as much bytes as possible
-    while ( ringspace() && mp3client.available() )
-    {
-      putring ( mp3client.read() ) ;                    // Yes, save one byte in ringbuffer
-    }
-    yield() ;
-    while ( mp3.data_request() && ringavail() )         // Try to keep VS1053 filled
-    {
-      handlebyte ( getring() ) ;                        // Yes, handle it
-    }
-    if ( stopreq )                                      // Stop requested?
-    {
-      stopreq = false ;                                 // Yes, stop song
-      playing = false ;                                 // No more guarding
-      mp3client.flush() ;                               // Flush stream client
-      mp3client.stop() ;                                // Stop stream client
-      mp3.setVolume ( 0 ) ;                             // Mute
-      mp3.stopSong() ;                                  // Stop playing
-      emptyring() ;                                     // Empty the ringbuffer
-    }
-    if ( ini_block.newpreset != currentpreset )         // New station requested?
-    {
-      if ( ini_block.newpreset > maxPreset ) ini_block.newpreset = 0;
-      if ( ini_block.newpreset < 0 ) ini_block.newpreset = maxPreset;
+  // Try to keep the ringbuffer filled up by adding as much bytes as possible
+  while ( ringspace() && mp3client.available() )
+  {
+    putring ( mp3client.read() ) ;                    // Yes, save one byte in ringbuffer
+  }
+  yield() ;
+  while ( mp3.data_request() && ringavail() )         // Try to keep VS1053 filled
+  {
+    handlebyte ( getring() ) ;                        // Yes, handle it
+  }
+  if ( stopreq )                                      // Stop requested?
+  {
+    stopreq = false ;                                 // Yes, stop song
+    playing = false ;                                 // No more guarding
+    mp3client.flush() ;                               // Flush stream client
+    mp3client.stop() ;                                // Stop stream client
+    mp3.setVolume ( 0 ) ;                             // Mute
+    mp3.stopSong() ;                                  // Stop playing
+    emptyring() ;                                     // Empty the ringbuffer
+  }
+  if ( ini_block.newpreset != currentpreset )         // New station requested?
+  {
+    if ( ini_block.newpreset > maxPreset ) ini_block.newpreset = 0;
+    if ( ini_block.newpreset < 0 ) ini_block.newpreset = maxPreset;
 
-      mp3.setVolume ( 0 ) ;                             // Mute
-      mp3.stopSong() ;                                  // Stop playing
-      emptyring() ;                                     // Empty the ringbuffer
-      dbgprint ( "New preset requested = %d",
+    mp3.setVolume ( 0 ) ;                             // Mute
+    mp3.stopSong() ;                                  // Stop playing
+    emptyring() ;                                     // Empty the ringbuffer
+    dbgprint ( "New preset requested = %d",
+               ini_block.newpreset ) ;
+    p = readhostfrominifile ( ini_block.newpreset ) ; // Lookup preset in ini-file
+    if ( p )                                          // Preset in ini-file?
+    {
+      dbgprint ( "Preset %d found in .ini file",      // Yes
                  ini_block.newpreset ) ;
-      p = readhostfrominifile ( ini_block.newpreset ) ; // Lookup preset in ini-file
-      if ( p )                                          // Preset in ini-file?
-      {
-        dbgprint ( "Preset %d found in .ini file",      // Yes
-                   ini_block.newpreset ) ;
-        strcpy ( host, p ) ;                            // Save it for storage and selection later
-        hostreq = true ;                                // Force this station as new preset
-      }
-      else
-      {
-        // This preset is not available, return to preset 0, will be handled in next loop()
-        ini_block.newpreset = 0 ;                       // Wrap to first station
-      }
-    }
-    if ( hostreq )
-    {
-      currentpreset = ini_block.newpreset ;             // Remember current preset
-      connecttohost() ;                                 // Switch to new host
-      hostreq = false ;
-    }
-    if ( reqtone )                                      // Request to change tone?
-    {
-      reqtone = false ;
-      mp3.setTone ( ini_block.rtone ) ;                 // Set SCI_BASS to requested value
-    }
-    if ( resetreq )                                     // Reset requested?
-    {
-      delay ( 1000 ) ;                                  // Yes, wait some time
-      ESP.restart() ;                                   // Reboot
-    }
-    if ( muteflag )
-    {
-      mp3.setVolume ( 0 ) ;                             // Mute
-#if defined ( USETFT )
-      tft.setCursor(40, 100);
-      tft.setTextColor ( RED ) ;                        // Set the requested color
-      tft.print("MUTE");
-#endif
+      strcpy ( host, p ) ;                            // Save it for storage and selection later
+      hostreq = true ;                                // Force this station as new preset
     }
     else
     {
-      mp3.setVolume ( ini_block.reqvol ) ;              // Unmute
-#if defined ( USETFT )
-      tft.setCursor(40, 100);
-      tft.setTextColor ( BLACK ) ;                        // Set the requested color
-      tft.print("MUTE");
-#endif
+      // This preset is not available, return to preset 0, will be handled in next loop()
+      ini_block.newpreset = 0 ;                       // Wrap to first station
     }
-    if ( *testfilename )                                // File to test?
-    {
-      testfile ( testfilename ) ;                       // Yes, do the test
-      *testfilename = '\0' ;                            // Clear test request
-    }
-    scanserial() ;                                      // Handle serial input
-    ArduinoOTA.handle() ;                               // Check for OTA
-  } else {                                              // Handle sleep mode
-
   }
+  if ( hostreq )
+  {
+    currentpreset = ini_block.newpreset ;             // Remember current preset
+    connecttohost() ;                                 // Switch to new host
+    hostreq = false ;
+  }
+  if ( reqtone )                                      // Request to change tone?
+  {
+    reqtone = false ;
+    mp3.setTone ( ini_block.rtone ) ;                 // Set SCI_BASS to requested value
+  }
+  if ( resetreq )                                     // Reset requested?
+  {
+    delay ( 1000 ) ;                                  // Yes, wait some time
+    ESP.restart() ;                                   // Reboot
+  }
+  if ( muteflag )
+  {
+    mp3.setVolume ( 0 ) ;                             // Mute
+#if defined ( USETFT )
+    tft.setCursor(40, 100);
+    tft.setTextColor ( RED ) ;                        // Set the requested color
+    tft.print("MUTE");
+#endif
+  }
+  else
+  {
+    mp3.setVolume ( ini_block.reqvol ) ;              // Unmute
+#if defined ( USETFT )
+    tft.setCursor(40, 100);
+    tft.setTextColor ( BLACK ) ;                        // Set the requested color
+    tft.print("MUTE");
+#endif
+  }
+  if ( *testfilename )                                // File to test?
+  {
+    testfile ( testfilename ) ;                       // Yes, do the test
+    *testfilename = '\0' ;                            // Clear test request
+  }
+  scanserial() ;                                      // Handle serial input
+  ArduinoOTA.handle() ;                               // Check for OTA
 }
 
 //******************************************************************************************
