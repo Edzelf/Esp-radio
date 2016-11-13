@@ -35,7 +35,11 @@
 // After de double CRLF is received, the server starts sending mp3- or Ogg-data.  For mp3, this
 // data may contain metadata (non mp3) after every "metaint" mp3 bytes.
 // The metadata is empty in most cases, but if any is available the content will be presented on the TFT.
-// Pushing the input button causes the player to select the next preset station present in the .ini file.
+// Pushing the input button shortly (below 300 ms) causes the player to select the next preset station present in the .ini file.
+// Pushing the input button longer (between 300 ms and 3 seconds) causes the player to select the previous preset station present in the .ini file.
+// The button is circling, next after the last changes to the first preset, previous before the first changes to the last.
+// Pushing the input button for more than 3 seconds allows to turn the radio to sleep mode (confirm with short button push)
+// Pushing the input button in sleep mode will start the radio.
 //
 // The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
 // file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
@@ -104,11 +108,11 @@
 // 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 // 11-10-2016, ES: Allow stations that have no bitrate in header like icecast.err.ee/raadio2.mp3.
-// 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
+// 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0
 // 22-10-2016, ES: Correction mute/unmute
 //
 // Define the version number:
-#define VERSION "22-oct-2016"
+#define VERSION "13-nov-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -269,9 +273,11 @@ String           anetworks ;                               // Aceptable networks
 uint8_t          num_an ;                                  // Number of acceptable networks in .ini file
 char             testfilename[20] ;                        // File to test (SPIFFS speed)
 uint16_t         mqttcount = 0 ;                           // Counter MAXMQTTCONNECTS
+int              buttonholdtime = 0;                       // To detect long button presses content = n times 100 msec
+int              maxPreset = -1;                           // Highest preset number used for cycling through channels
 
 //******************************************************************************************
-// End of lobal data section.                                                              *
+// End of global data section.                                                              *
 //******************************************************************************************
 //******************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                              *
@@ -959,6 +965,70 @@ void timer100()
   }
   else
   {
+#if ( defined ( USETFT ) )
+    newval = digitalRead ( BUTTON2 ) ;            // Test if below certain level
+    if ( newval != oldval2 )                      // Change?
+    {
+      oldval2 = newval ;                          // Yes, remember value
+      if ( newval == LOW )                        // Button pushed?
+      {
+        buttonholdtime = 1;
+        return ;
+      }
+      else
+      { // Button released
+        if (buttonholdtime > 0)
+        {
+          if (muteflag)                               // Muted?
+          {
+            if (buttonholdtime > 20)                  // Just muted and released button?
+            {
+              buttonholdtime = 0;
+              return ;
+            }
+            else                                      // Or pressed again? -> Unmute!
+            {
+              muteflag = false;
+              buttonholdtime = 0;
+              return ;
+            }
+          }
+          else                                         // Not muted, change channel
+          {
+            if (buttonholdtime < 3)
+            { // Short press = forward
+              ini_block.newpreset = currentpreset + 1 ;// Goto next preset station
+              dbgprint ( "Digital button 2 pushed short = forward" ) ;
+              muteflag = false;
+            }
+            else if (buttonholdtime < 20)
+            { // Long press between 300 ms and 2 sec = backwards
+              ini_block.newpreset = currentpreset - 1; // Goto previous preset station
+              dbgprint ( "Digital button 2 pushed long = backward" ) ;
+              muteflag = false;
+            }
+          }
+          buttonholdtime = 0;
+        }
+      }
+      return ;
+    }
+    else
+    { // newval == oldval2 -> no change
+      if ( newval == LOW ) {                      // If button is still pushed
+        if (buttonholdtime > 0)
+        {
+          buttonholdtime++;
+        }
+        if (buttonholdtime >= 20)
+        {
+          muteflag = true;
+        }
+      }
+      return ;
+    }
+#endif
+#if ( not ( defined ( USETFT ) ) )
     newval = digitalRead ( BUTTON2 ) ;            // Test if below certain level
     if ( newval != oldval2 )                      // Change?
     {
@@ -970,7 +1040,6 @@ void timer100()
       }
       return ;
     }
-#if ( not ( defined ( USETFT ) ) )
     newval = digitalRead ( BUTTON1 ) ;            // Test if below certain level
     if ( newval != oldval1 )                      // Change?
     {
@@ -1127,7 +1196,7 @@ void connecttohost()
     *p = '\0' ;                                     // Remove extension from host
     dbgprint ( "Slash in station" ) ;
   }
-  pfs = dbgprint ( "Connect to preset %d, host %s on port %d, extension %s",
+  pfs = dbgprint ( "Connect to preset %d,\r\nhost %s on port %d,\r\nextension %s",
                    currentpreset, host, port, extension.c_str() ) ;
   displayinfo ( pfs, 60, YELLOW ) ;                 // Show info at position 60
   delay ( 2000 ) ;                                  // Show for some time
@@ -1519,6 +1588,7 @@ void setup()
     dbgprint ( "%-32s - %6d",                          // Show name and size
                filename.c_str(), f.size() ) ;
   }
+  readMaxPreset();                                     // Read highest preset number
   mk_lsan() ;                                          // Make al list of acceptable networks in ini file.
   listNetworks() ;                                     // Search for WiFi networks
   readinifile() ;                                      // Read .ini file
@@ -1636,6 +1706,9 @@ void loop()
   }
   if ( ini_block.newpreset != currentpreset )         // New station requested?
   {
+    if ( ini_block.newpreset > maxPreset ) ini_block.newpreset = 0;
+    if ( ini_block.newpreset < 0 ) ini_block.newpreset = maxPreset;
+
     mp3.setVolume ( 0 ) ;                             // Mute
     mp3.stopSong() ;                                  // Stop playing
     emptyring() ;                                     // Empty the ringbuffer
@@ -1674,10 +1747,20 @@ void loop()
   if ( muteflag )
   {
     mp3.setVolume ( 0 ) ;                             // Mute
+#if defined ( USETFT )
+    tft.setCursor(40, 100);
+    tft.setTextColor ( RED ) ;                        // Set the requested color
+    tft.print("MUTE");
+#endif
   }
   else
   {
     mp3.setVolume ( ini_block.reqvol ) ;              // Unmute
+#if defined ( USETFT )
+    tft.setCursor(40, 100);
+    tft.setTextColor ( BLACK ) ;                        // Set the requested color
+    tft.print("MUTE");
+#endif
   }
   if ( *testfilename )                                // File to test?
   {
@@ -1687,7 +1770,6 @@ void loop()
   scanserial() ;                                      // Handle serial input
   ArduinoOTA.handle() ;                               // Check for OTA
 }
-
 
 //******************************************************************************************
 //                            C H K H D R L I N E                                          *
@@ -2027,6 +2109,37 @@ void getpresets ( AsyncWebServerRequest *request )
   request->send ( response ) ;
 }
 
+//******************************************************************************************
+//                           G E T L A S T P R E S E T                                     *
+//******************************************************************************************
+// Find highest preset number and return it to caller                                      *
+//******************************************************************************************
+void readMaxPreset ()
+{
+  String              path ;                           // Full file spec as string
+  File                inifile ;                        // File containing URL with mp3
+  String              line ;                           // Input line from .ini file
+  String              linelc ;                         // Same, but lowercase
+  int                 i ;                              // Loop control
+
+  path = String ( INIFILENAME ) ;                      // Form full path
+  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  if ( inifile )
+  {
+    while ( inifile.available() )
+    {
+      line = inifile.readStringUntil ( '\n' ) ;        // Read next line
+      linelc = line ;                                  // Copy for lowercase
+      linelc.toLowerCase() ;                           // Set to lowercase
+      if ( linelc.startsWith ( "preset_" ) )           // Found the key?
+      {
+        i = linelc.substring(7, 9).toInt() ;           // Get index 00..99
+        if (i > maxPreset) maxPreset = i;
+      }
+    }
+    inifile.close() ;                                  // Close the file
+  }
+}
 
 //******************************************************************************************
 //                             A N A L Y Z E C M D                                         *
