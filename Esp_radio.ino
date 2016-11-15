@@ -1,4 +1,4 @@
-//******************************************************************************************
+
 //*  Esp_radio -- Webradio receiver for ESP8266, 1.8 color display and VS1053 MP3 module.  *
 //*  With ESP8266 running at 80 MHz, it is capable of handling up to 256 kb bitrate.       *
 //*  With ESP8266 running at 160 MHz, it is capable of handling up to 320 kb bitrate.      *
@@ -94,27 +94,27 @@
 // 03-05-2016, ES: Add bass/treble settings (see also new index.html).
 // 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3".
 // 06-05-2016, ES: Allow hiddens WiFi station if this is the only .pw file.
-// 07-05-2016, ES: Added preset selection in webserver
-// 12-05-2016, ES: Added support for Ogg-encoder
-// 13-05-2016, ES: Better Ogg detection
+// 07-05-2016, ES: Added preset selection in webserver.
+// 12-05-2016, ES: Added support for Ogg-encoder.
+// 13-05-2016, ES: Better Ogg detection.
 // 17-05-2016, ES: Analog input for commands, extra buttons if no TFT required.
-// 26-05-2016, ES: Fixed BUTTON3 bug (no TFT)
-// 27-05-2016, ES: Fixed restore station at restart
-// 04-07-2016, ES: WiFi.disconnect clears old connection now (thanks to Juppit)
-// 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode
+// 26-05-2016, ES: Fixed BUTTON3 bug (no TFT).
+// 27-05-2016, ES: Fixed restore station at restart.
+// 04-07-2016, ES: WiFi.disconnect clears old connection now (thanks to Juppit).
+// 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode.
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 // 11-10-2016, ES: Allow stations that have no bitrate in header like icecast.err.ee/raadio2.mp3.
 // 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
-// 22-10-2016, ES: Correction mute/unmute
+// 22-10-2016, ES: Correction mute/unmute.
+// 15-11-2016, ES: Support for .m3u playlists.
 //
 // Define the version number:
-#define VERSION "22-oct-2016"
+#define VERSION "15-nov-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-//#include <SyncClient.h> Seems to loose some bytes, resulting in sync error metadata
 #include <AsyncMqttClient.h>
 #include <SPI.h>
 #if defined ( USETFT )
@@ -184,8 +184,8 @@ extern "C"
 //******************************************************************************************
 // Forward declaration of various functions                                                *
 //******************************************************************************************
-void   displayinfo ( const char *str, int pos, uint16_t color ) ;
-void   showstreamtitle() ;
+void   displayinfo ( const char *str, uint16_t pos, uint16_t height, uint16_t color ) ;
+void   showstreamtitle ( char *ml, bool full = false ) ;
 void   handlebyte ( uint8_t b ) ;
 void   handleFS ( AsyncWebServerRequest *request ) ;
 void   handleCmd ( AsyncWebServerRequest *request )  ;
@@ -195,14 +195,14 @@ char*  dbgprint( const char* format, ... ) ;
 char*  analyzeCmd ( const char* str ) ;
 char*  analyzeCmd ( const char* par, const char* val ) ;
 String chomp ( String str ) ;
-void publishIP() ;
+void   publishIP() ;
 
 //
 //******************************************************************************************
 // Global data section.                                                                    *
 //******************************************************************************************
 // There is a block ini-data that contains some configuration.  This data can be saved in  *
-// the SPIFFS file announcer.ini by the webinterface.  On restart the new data will be     *
+// the SPIFFS file radio.ini by the webinterface.  On restart the new data will be         *
 // read from this file.  The file will not be saved automatically to prevent wear-out of   *
 // the flash.  Items in ini_block can be changed by commands from webserver/MQTT/Serial.   *
 //******************************************************************************************
@@ -221,13 +221,14 @@ struct ini_struct
   String         passwd ;                                  // Password for WiFi network
 } ;
 
-enum datamode_t { INIT, HEADER, DATA, METADATA } ;         // State for datastream
+enum datamode_t { INIT, HEADER, DATA, METADATA,
+                  PLAYLISTINIT, PLAYLISTHEADER, PLAYLISTDATA } ;  // State for datastream
 
 // Global variables
 int              DEBUG = 1 ;
 ini_struct       ini_block ;                               // Holds configurable data
 WiFiClient       mp3client ;                               // An instance of the mp3 client
-AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver
+AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver on port 80
 AsyncMqttClient  mqttclient ;                              // Client for MQTT subscriber
 IPAddress        mqtt_server_IP ;                          // IP address of MQTT broker
 char             cmd[130] ;                                // Command from MQTT or Serial
@@ -240,21 +241,16 @@ datamode_t       datamode ;                                // State of datastrea
 int              metacount ;                               // Number of bytes in metadata
 int              datacount ;                               // Counter databytes before metadata
 char             metaline[200] ;                           // Readable line in metadata
-char             streamtitle[150] ;                        // Streamtitle from metadata
 int              bitrate ;                                 // Bitrate in kb/sec
 int              metaint = 0 ;                             // Number of databytes between metadata
 int8_t           currentpreset = -1 ;                      // Preset station playing
 char             host[MAXHOSTSIZ] ;                        // The hostname to connect to or file to play
-bool             hostreq ;                                 // Request for new host
+char             playlist[MAXHOSTSIZ] ;                    // The URL of the specified playlist
+bool             hostreq = false ;                         // Request for new host
 bool             stopreq = false ;                         // Request to stop playing
-bool             playreq = false ;                         // Request for mp3 file to play
 bool             playing = false ;                         // Playing active (for data guard)
-char             sname[100] ;                              // Stationname
 int              port ;                                    // Port number for host
-int              delpreset = 0 ;                           // Preset to be deleted if nonzero
-uint8_t          savvolume ;                               // Saved volume
 bool             reqtone = false ;                         // new tone setting requested
-uint8_t          savpreset ;                               // Saved preset station
 bool             muteflag = false ;                        // Mute output
 uint8_t*         ringbuf ;                                 // Ringbuffer for VS1053
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
@@ -269,10 +265,11 @@ String           anetworks ;                               // Aceptable networks
 uint8_t          num_an ;                                  // Number of acceptable networks in .ini file
 char             testfilename[20] ;                        // File to test (SPIFFS speed)
 uint16_t         mqttcount = 0 ;                           // Counter MAXMQTTCONNECTS
-
+int8_t           playlist_num = 0 ;                        // Nonzero for selection from playlist
 //******************************************************************************************
-// End of lobal data section.                                                              *
+// End of global data section.                                                             *
 //******************************************************************************************
+//
 //******************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                              *
 //******************************************************************************************
@@ -812,8 +809,6 @@ void listNetworks()
 }
 
 
-
-
 //******************************************************************************************
 //                                  T I M E R 1 0 S E C                                    *
 //******************************************************************************************
@@ -838,10 +833,17 @@ void timer10sec()
         dbgprint ( "Going to restart..." ) ;
         ESP.restart() ;                           // Reset the CPU, probably no return
       }
-      if ( morethanonce >= 1 )                    // Happened more than once?
+      if ( ( datamode == PLAYLISTDATA ) ||         // In playlist mode?
+           ( datamode == PLAYLISTINIT ) ||
+           ( datamode == PLAYLISTHEADER ) )
+      {
+        playlist_num = 0 ;                        // Yes, end of playlist
+      }
+      if ( ( morethanonce > 0 ) ||                // Happened more than once?
+           ( playlist_num > 0 ) )                 // Or playlist active?
       {
         ini_block.newpreset++ ;                   // Yes, try next channel
-        dbgprint ( "Trying other station..." ) ;
+        dbgprint ( "Trying other station/file..." ) ;
       }
       morethanonce++ ;                            // Count the fails
     }
@@ -1027,13 +1029,13 @@ void timer100()
 //******************************************************************************************
 // Show a string on the LCD at a specified y-position in a specified color                 *
 //******************************************************************************************
-void displayinfo ( const char *str, int pos, uint16_t color )
+void displayinfo ( const char *str, uint16_t pos, uint16_t height, uint16_t color )
 {
 #if defined ( USETFT )
-  tft.fillRect ( 0, pos, 160, 40, BLACK ) ;   // Clear the space for new info
-  tft.setTextColor ( color ) ;                // Set the requested color
-  tft.setCursor ( 0, pos ) ;                  // Prepare to show the info
-  tft.print ( str ) ;                         // Show the string
+  tft.fillRect ( 0, pos, 160, height, BLACK ) ; // Clear the space for new info
+  tft.setTextColor ( color ) ;                  // Set the requested color
+  tft.setCursor ( 0, pos ) ;                    // Prepare to show the info
+  tft.println ( str ) ;                         // Show the string
 #endif
 }
 
@@ -1041,10 +1043,12 @@ void displayinfo ( const char *str, int pos, uint16_t color )
 //******************************************************************************************
 //                        S H O W S T R E A M T I T L E                                    *
 //******************************************************************************************
-// show artist and songtitle if present in metadata                                        *
+// Show artist and songtitle if present in metadata.                                       *
+// Show always if full=true.                                                               *
 //******************************************************************************************
-void showstreamtitle ( char *ml )
+void showstreamtitle ( char *ml, bool full )
 {
+  char        streamtitle[150] ;                // Streamtitle from metadata
   char*       p1 ;
   char*       p2 ;
 
@@ -1070,9 +1074,15 @@ void showstreamtitle ( char *ml )
     strncpy ( streamtitle, p1, sizeof ( streamtitle ) ) ;
     streamtitle[sizeof ( streamtitle ) - 1] = '\0' ;
   }
+  else if ( full )
+  {
+    // Info probably from playlist
+    strncpy ( streamtitle, ml, sizeof ( streamtitle ) ) ;
+    streamtitle[sizeof ( streamtitle ) - 1] = '\0' ;
+  }
   else
   {
-    return ;                                    // Metadata does not contain streamtitle
+    return ;                                    // Do not show
   }
   if ( ( p1 = strstr ( streamtitle, " - " ) ) ) // look for artist/title separator
   {
@@ -1084,7 +1094,7 @@ void showstreamtitle ( char *ml )
     }
     strcpy ( p1, p2 ) ;                         // Shift 2nd part of title 2 or 3 places
   }
-  displayinfo ( streamtitle, 20, CYAN ) ;       // Show title at position 20
+  displayinfo ( streamtitle, 20, 40, CYAN ) ;   // Show title at position 20
 }
 
 
@@ -1106,13 +1116,24 @@ void connecttohost()
     mp3client.flush() ;
     mp3client.stop() ;
   }
-  displayinfo ( "   ** Internet radio **", 0, WHITE ) ;
+  displayinfo ( "   ** Internet radio **", 0, 20, WHITE ) ;
   port = 80 ;                                       // Default port
+  datamode = INIT ;                                 // Start default in metamode
+  if ( strstr ( host, ".m3u" ) )                    // Is it an m3u playlist?
+  {
+    strcpy ( playlist, host ) ;                     // Save copy of playlist URL
+    datamode = PLAYLISTINIT ;                       // Yes, start in PLAYLIST mode
+    if ( playlist_num == 0 )                        // First entry to play?
+    {
+      playlist_num = 1 ;                            // Yes, set index
+    }
+    dbgprint ( "Playlist request, entry %d", playlist_num ) ;
+  }
   p = strstr ( host, ":" ) ;                        // Search for separator
   if ( p )                                          // Portnumber available?
   {
     *p++ = '\0' ;                                   // Remove port from string and point to port
-    port = atoi ( p ) ;                            // Get portnumber as integer
+    port = atoi ( p ) ;                             // Get portnumber as integer
   }
   else
   {
@@ -1129,9 +1150,10 @@ void connecttohost()
   }
   pfs = dbgprint ( "Connect to preset %d, host %s on port %d, extension %s",
                    currentpreset, host, port, extension.c_str() ) ;
-  displayinfo ( pfs, 60, YELLOW ) ;                 // Show info at position 60
+  displayinfo ( pfs, 60, 68, YELLOW ) ;             // Show info at position 60
   delay ( 2000 ) ;                                  // Show for some time
   mp3client.flush() ;
+  emptyring() ;                                     // Empty the ringbuffer
   if ( mp3client.connect ( host, port ) )
   {
     dbgprint ( "Connected to server" ) ;
@@ -1143,7 +1165,6 @@ void connecttohost()
                       "Icy-MetaData:1\r\n" +
                       "Connection: close\r\n\r\n");
   }
-  datamode = INIT ;                                 // Start in metamode
   playing = true ;                                  // Allow data guard
 }
 
@@ -1411,7 +1432,7 @@ void scanserial()
   while ( Serial.available() )                   // Any input seen?
   {
     c =  (char)Serial.read() ;                   // Yes, read the next input character
-    Serial.write ( c ) ;                         // Echo
+    //Serial.write ( c ) ;                       // Echo
     len = serialcmd.length() ;                   // Get the length of the current string
     if ( ( c == '\n' ) || ( c == '\r' ) )
     {
@@ -1544,13 +1565,13 @@ void setup()
   tft.setTextSize ( 1 ) ;                              // Small character font
   tft.setTextColor ( WHITE ) ;
   tft.println ( "Starting" ) ;
+  tft.print   ( "Version " ) ;
+  tft.println ( VERSION ) ;
 #else
   pinMode ( BUTTON1, INPUT_PULLUP ) ;                  // Input for control button 1
   pinMode ( BUTTON3, INPUT_PULLUP ) ;                  // Input for control button 3
 #endif
   delay(10);
-  streamtitle[0] = '\0' ;                              // No title yet
-  hostreq = false ;                                    // No host yet
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
   tckr.attach ( 0.100, timer100 ) ;                    // Every 100 msec
   dbgprint ( "Selected network: %-25s", ini_block.ssid.c_str() ) ;
@@ -1589,7 +1610,6 @@ void setup()
       mqttclient.connect();
     }
   }
-
   delay ( 1000 ) ;                                     // Show IP for a wile
   ArduinoOTA.setHostname ( "ESP-radio" ) ;             // Set the hostname
   ArduinoOTA.onStart ( otastart ) ;
@@ -1634,18 +1654,25 @@ void loop()
     mp3.stopSong() ;                                  // Stop playing
     emptyring() ;                                     // Empty the ringbuffer
   }
-  if ( ini_block.newpreset != currentpreset )         // New station requested?
+  if ( ini_block.newpreset != currentpreset )         // New station or next from playlist requested?
   {
+    dbgprint ( "New preset/file requested" ) ;
     mp3.setVolume ( 0 ) ;                             // Mute
     mp3.stopSong() ;                                  // Stop playing
     emptyring() ;                                     // Empty the ringbuffer
-    dbgprint ( "New preset requested = %d",
-               ini_block.newpreset ) ;
-    p = readhostfrominifile ( ini_block.newpreset ) ; // Lookup preset in ini-file
+    if ( playlist_num )                               // Playing from playlist?
+    {
+      p = playlist ;                                  // Yes, retrieve URL of playlist
+      playlist_num += ini_block.newpreset -
+                      currentpreset ;                 // Next entry in playlist
+      ini_block.newpreset = currentpreset ;           // Stay at current preset
+    }
+    else
+    {
+      p = readhostfrominifile ( ini_block.newpreset ) ; // Lookup preset in ini-file
+    }
     if ( p )                                          // Preset in ini-file?
     {
-      dbgprint ( "Preset %d found in .ini file",      // Yes
-                 ini_block.newpreset ) ;
       strcpy ( host, p ) ;                            // Save it for storage and selection later
       hostreq = true ;                                // Force this station as new preset
     }
@@ -1655,7 +1682,7 @@ void loop()
       ini_block.newpreset = 0 ;                       // Wrap to first station
     }
   }
-  if ( hostreq )
+  if ( hostreq )                                      // New preset or station?
   {
     currentpreset = ini_block.newpreset ;             // Remember current preset
     connecttohost() ;                                 // Switch to new host
@@ -1731,15 +1758,15 @@ bool chkhdrline ( const char* str )
 //******************************************************************************************
 void handlebyte ( uint8_t b )
 {
-  static uint16_t  metaindex ;                          // Index in metaline
-  static bool      firstmetabyte ;                      // True if first metabyte (counter)
-  static int       LFcount ;                            // Detection of end of header
-  static __attribute__((aligned(4))) uint8_t buf[32] ;  // Buffer for chunk
-  static int       chunkcount = 0 ;                     // Data in chunk
-  static bool      firstchunk = true ;                  // First chunk as input
-  char*            p ;                                  // Pointer in metaline
-  int              i ;                                  // Loop control
-
+  static uint16_t  metaindex ;                         // Index in metaline
+  static uint16_t  playlistcnt ;                       // Counter to find right entry in playlist
+  static bool      firstmetabyte ;                     // True if first metabyte (counter)
+  static int       LFcount ;                           // Detection of end of header
+  static __attribute__((aligned(4))) uint8_t buf[32] ; // Buffer for chunk
+  static int       chunkcount = 0 ;                    // Data in chunk
+  static bool      firstchunk = true ;                 // First chunk as input
+  char*            p ;                                 // Pointer in metaline
+  int              i ;                                 // Loop control
 
   if ( datamode == INIT )                              // Initialize for header receive
   {
@@ -1815,9 +1842,7 @@ void handlebyte ( uint8_t b )
         }
         else if ( ( p = strstr ( metaline, "icy-name:" ) ) )
         {
-          strncpy ( sname, p + 9, sizeof ( sname ) ) ; // Found station name, save it, prevent overflow
-          sname[sizeof(sname) - 1] = '\0' ;
-          displayinfo ( sname, 60, YELLOW ) ;          // Show title at position 60
+          displayinfo ( p+9, 60, 68, YELLOW ) ;        // Show title at position 60
         }
       }
       if ( LFcount == 2 )
@@ -1878,6 +1903,102 @@ void handlebyte ( uint8_t b )
       chunkcount = 0 ;                                // Reset chunkcount
       datamode = DATA ;                               // Expecting data
     }
+  }
+  if ( datamode == PLAYLISTINIT )                      // Initialize for receive .m3u file
+  {
+    // We are going to use metadata to read the lines from the .m3u file
+    metaindex = 0 ;                                    // Prepare for new line
+    LFcount = 0 ;                                      // For detection end of header
+    datamode = PLAYLISTHEADER ;                        // Handle playlist data
+    playlistcnt = 1 ;                                  // Reset for compare
+    totalcount = 0 ;                                   // Reset totalcount
+    dbgprint ( "Read from playlist" ) ;
+  }
+  if ( datamode == PLAYLISTHEADER )                   // Read header
+  {
+    if ( ( b > 0x7F ) ||                               // Ignore unprintable characters
+         ( b == '\r' ) ||                              // Ignore CR
+         ( b == '\0' ) )                               // Ignore NULL
+    {
+      // Yes, ignore
+    }
+    else if ( b == '\n' )                              // Linefeed ?
+    {
+      LFcount++ ;                                      // Count linefeeds
+      metaline[metaindex] = '\0' ;                     // Mark end of string
+      metaindex = 0 ;                                  // Reset for next line
+      dbgprint ( "Playlistheader: %s", metaline ) ;    // Show it
+      if ( LFcount == 2 )
+      {
+        dbgprint ( "Switch to PLAYLISTDATA" ) ;
+        datamode = PLAYLISTDATA ;                      // Expecting data now
+      }
+    }
+    else
+    {
+      metaline[metaindex] = (char)b ;                 // Normal character, put new char in metaline
+      if ( metaindex < ( sizeof(metaline) - 2 ) )     // Prevent buffer overflow
+      {
+        metaindex++ ;
+      }
+      LFcount = 0 ;                                   // Reset double CRLF detection
+    }
+  }
+  if ( datamode == PLAYLISTDATA )                     // Read next byte of .m3u file data
+  {
+    if ( ( b > 0x7F ) ||                              // Ignore unprintable characters
+         ( b == '\r' ) ||                             // Ignore CR
+         ( b == '\0' ) )                              // Ignore NULL
+    {
+      // Yes, ignore
+    }
+    else if ( b == '\n' )                             // Linefeed ?
+    {
+      metaline[metaindex] = '\0' ;                    // Mark end of string
+      metaindex = 0 ;                                 // Reset for next line
+      if ( strlen ( metaline ) == 0 )                 // Skip empty lines
+      {
+        return ;
+      }
+      if ( strstr ( metaline, "#EXTINF:" ) )          // Info?
+      {
+        if ( playlist_num == playlistcnt )            // Info for this entry?
+        {
+          if ( ( p = strstr ( metaline, "," ) ) )     // Yes, search for comma
+          {
+            showstreamtitle ( p + 1, true ) ;         // Show artist and title if present in metadata
+          }
+        }
+      }
+      if ( metaline[0] == '#' )                       // Commentline?
+      {
+        return ;                                      // Ignore commentlines
+      }
+      // Now we have an URL for a .mp3 file or stream.  Is it the rigth one?
+      dbgprint ( "Entry %d in playlist found: %s", playlistcnt, metaline ) ;
+      if ( playlist_num == playlistcnt  )
+      {
+        if ( strstr ( metaline, "http://" ) )         // Does URL contain "http://"?
+        {
+          strcpy ( host, metaline + 7 ) ;             // Yes, remove it and set host
+        }
+        else
+        {
+          strcpy ( host, metaline ) ;                 // Yes, set new host
+        }
+        connecttohost() ;                             // Connect to it
+      }
+      playlistcnt++ ;                                 // Next entry in playlist
+    }
+    else
+    {
+      metaline[metaindex] = (char)b ;                 // Normal character, put new char in metaline
+      if ( metaindex < ( sizeof(metaline) - 2 ) )     // Prevent buffer overflow
+      {
+        metaindex++ ;
+      }
+    }
+    return ;
   }
 }
 
@@ -2081,7 +2202,7 @@ String chomp ( String str )
 // par holds the parametername and val holds the value.                                    *
 // "wifi_00" and "preset_00" may appear more than once, like wifi_01, wifi_02, etc.        *
 // Examples with available parameters:                                                     *
-//   preset     = 12                        // Select start preset to connect to *)        *
+//   preset     = 12                        // Select start preset to connect to           *
 //   preset_00  = <mp3 stream>              // Specify station for a preset 00-99 *)       *
 //   volume     = 95                        // Percentage between 0 and 100                *
 //   upvolume   = 2                         // Add percentage to current volume            *
@@ -2091,6 +2212,8 @@ String chomp ( String str )
 //   tonela     = <0..15>                   // Setting bass gain                           *
 //   tonelf     = <0..15>                   // Setting treble frequency                    *
 //   station    = <mp3 stream>              // Select new station (will not be saved)      *
+//   station    = <URL>.mp3                 // Play standalone .mp3 file (not saved)       *
+//   station    = <URL>.m3u                 // Select playlist (will not be saved)         *
 //   mute                                   // Mute the music                              *
 //   unmute                                 // Unmute the music                            *
 //   wifi_00    = mySSID/mypassword         // Set WiFi SSID and password *)               *
@@ -2132,6 +2255,10 @@ char* analyzeCmd ( const char* par, const char* val )
   {
     relative = true ;                                 // It's relative
     ivalue = - ivalue ;                               // But with negative value
+  }
+  if ( value.startsWith ( "http://" ) )               // Does (possible) URL contain "http://"?
+  {
+    value.remove ( 0, 7 ) ;                           // Yes, remove it
   }
   dbgprint ( "Command: %s with parameter %s",
              argument.c_str(), value.c_str() ) ;
@@ -2187,14 +2314,6 @@ char* analyzeCmd ( const char* par, const char* val )
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "New preset station %s accepted",       // Format reply
-              host ) ;
-  }
-  else if ( argument == "play" )                      // Play standalone mp3 file requested?
-  {
-    strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later
-    playreq = true ;                                  // Force this mp3 to be played
-    sprintf ( reply,
-              "Mp3-file to play %s accepted",         // Format reply
               host ) ;
   }
   else if ( argument == "status" )                    // Status request
@@ -2327,7 +2446,7 @@ void handleCmd ( AsyncWebServerRequest *request )
   const char*        reply ;                          // Reply to client
   uint32_t           t ;                              // For time test
   int                params ;                         // Number of params
-  File               f ;                              // Handle for writing /announcer.ini to SPIFFS
+  File               f ;                              // Handle for writing /radio.ini to SPIFFS
 
   t = millis() ;                                      // Timestamp at start
   params = request->params() ;                        // Get number of arguments
