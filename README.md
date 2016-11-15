@@ -4,6 +4,7 @@ Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New v
 Features:
 -	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
 - Can connect to a standalone mp3 file on a server.
+- Support for .m3u playlists.
 -	Uses a minimal number of components; no Arduino required.
 -	Handles bitrates up to 320 kbps.
 -	Has a preset list of maximal 100 favorite radio stations in configuration file.
@@ -25,6 +26,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 15-nov-2016: Support for .m3u files.
 - 22-oct-2016: Correction mute/unmute.
 - 14-oct-2016: Update for AsyncMqttClient version 0.5.0. Added extra documentation for MQTT.
 - 11-oct-2016: Allow stations that do not specify bitrate.  Allow standalone MP3s. 
