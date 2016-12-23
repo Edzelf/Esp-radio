@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 23-dec-2016: Add support for mp3 files on SPIFFS.
 - 15-nov-2016: Support for .m3u files.
 - 22-oct-2016: Correction mute/unmute.
 - 14-oct-2016: Update for AsyncMqttClient version 0.5.0. Added extra documentation for MQTT.
