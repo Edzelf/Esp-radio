@@ -4,6 +4,7 @@ Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New v
 Features:
 -	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
 - Can connect to a standalone mp3 file on a server.
+- Can connect to a local mp3 file on SPIFFS.
 - Support for .m3u playlists.
 -	Uses a minimal number of components; no Arduino required.
 -	Handles bitrates up to 320 kbps.
