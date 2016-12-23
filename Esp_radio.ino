@@ -1,4 +1,4 @@
-
+//******************************************************************************************
 //*  Esp_radio -- Webradio receiver for ESP8266, 1.8 color display and VS1053 MP3 module.  *
 //*  With ESP8266 running at 80 MHz, it is capable of handling up to 256 kb bitrate.       *
 //*  With ESP8266 running at 160 MHz, it is capable of handling up to 320 kb bitrate.      *
@@ -107,9 +107,10 @@
 // 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
 // 22-10-2016, ES: Correction mute/unmute.
 // 15-11-2016, ES: Support for .m3u playlists.
+// 22-12-2016, ES: Support for localhost (play from SPIFFS).
 //
 // Define the version number:
-#define VERSION "15-nov-2016"
+#define VERSION "23-dec-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -186,7 +187,7 @@ extern "C"
 //******************************************************************************************
 void   displayinfo ( const char *str, uint16_t pos, uint16_t height, uint16_t color ) ;
 void   showstreamtitle ( char *ml, bool full = false ) ;
-void   handlebyte ( uint8_t b ) ;
+void  handlebyte ( uint8_t b, bool force = false ) ;
 void   handleFS ( AsyncWebServerRequest *request ) ;
 void   handleCmd ( AsyncWebServerRequest *request )  ;
 void   handleFileUpload ( AsyncWebServerRequest *request, String filename,
@@ -221,8 +222,10 @@ struct ini_struct
   String         passwd ;                                  // Password for WiFi network
 } ;
 
-enum datamode_t { INIT, HEADER, DATA, METADATA,
-                  PLAYLISTINIT, PLAYLISTHEADER, PLAYLISTDATA } ;  // State for datastream
+enum datamode_t { INIT = 1, HEADER = 2, DATA = 4,
+                  METADATA = 8, PLAYLISTINIT = 16,
+                  PLAYLISTHEADER = 32, PLAYLISTDATA = 64,
+                  STOPREQD = 128, STOPPED = 256 } ;        // State for datastream
 
 // Global variables
 int              DEBUG = 1 ;
@@ -241,14 +244,14 @@ datamode_t       datamode ;                                // State of datastrea
 int              metacount ;                               // Number of bytes in metadata
 int              datacount ;                               // Counter databytes before metadata
 char             metaline[200] ;                           // Readable line in metadata
+char             streamtitle[150] ;                        // Streamtitle from metadata
+char             icyname[50] ;                             // Station name
 int              bitrate ;                                 // Bitrate in kb/sec
 int              metaint = 0 ;                             // Number of databytes between metadata
 int8_t           currentpreset = -1 ;                      // Preset station playing
 char             host[MAXHOSTSIZ] ;                        // The hostname to connect to or file to play
 char             playlist[MAXHOSTSIZ] ;                    // The URL of the specified playlist
 bool             hostreq = false ;                         // Request for new host
-bool             stopreq = false ;                         // Request to stop playing
-bool             playing = false ;                         // Playing active (for data guard)
 int              port ;                                    // Port number for host
 bool             reqtone = false ;                         // new tone setting requested
 bool             muteflag = false ;                        // Mute output
@@ -262,10 +265,14 @@ bool             resetreq = false ;                        // Request to reset t
 bool             NetworkFound ;                            // True if WiFi network connected
 String           networks ;                                // Found networks
 String           anetworks ;                               // Aceptable networks (present in .ini file)
+String           presetlist ;                              // List for webserver
 uint8_t          num_an ;                                  // Number of acceptable networks in .ini file
 char             testfilename[20] ;                        // File to test (SPIFFS speed)
 uint16_t         mqttcount = 0 ;                           // Counter MAXMQTTCONNECTS
 int8_t           playlist_num = 0 ;                        // Nonzero for selection from playlist
+File             mp3file  ;                                // File containing mp3 on SPIFFS
+bool             localfile = false ;                       // Play from local mp3-file or not
+
 //******************************************************************************************
 // End of global data section.                                                             *
 //******************************************************************************************
@@ -308,7 +315,7 @@ class VS1053
     {
       while ( !digitalRead ( dreq_pin ) )
       {
-        yield() ;                               // Very short delay
+        yield() ;                                 // Very short delay
       }
     }
 
@@ -639,7 +646,7 @@ void VS1053::printDetails ( const char *header )
 }
 
 // The object for the MP3 player
-VS1053 mp3 (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
+VS1053 vs1053player (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
 
 //******************************************************************************************
 // End VS1053 stuff.                                                                       *
@@ -715,7 +722,7 @@ void emptyring()
 //******************************************************************************************
 char* dbgprint ( const char* format, ... )
 {
-  static char sbuf[DEBUG_BUFFER_SIZE] ;               // For debug lines
+  static char sbuf[DEBUG_BUFFER_SIZE] ;                // For debug lines
   va_list varArgs ;                                    // For variable number of params
 
   va_start ( varArgs, format ) ;                       // Prepare parameters
@@ -813,7 +820,7 @@ void listNetworks()
 //                                  T I M E R 1 0 S E C                                    *
 //******************************************************************************************
 // Extra watchdog.  Called every 10 seconds.                                               *
-// If totalcount has not been changed, there is a problem and a reset will be performed.   *
+// If totalcount has not been changed, there is a problem and playing will stop.           *
 // Note that a "yield()" within this routine or in called functions will cause a crash!    *
 //******************************************************************************************
 void timer10sec()
@@ -822,26 +829,30 @@ void timer10sec()
   static uint8_t  morethanonce = 0 ;              // Counter for succesive fails
   static uint8_t  t600 = 0 ;                      // Counter for 10 minutes
 
-  if ( playing )                                  // Test op continious play?
+  if ( datamode & ( INIT | HEADER | DATA |        // Test op playing
+                    METADATA | PLAYLISTINIT |
+                    PLAYLISTHEADER |
+                    PLAYLISTDATA ) )
   {
     if ( totalcount == oldtotalcount )
     {
       // No data detected!
       dbgprint ( "No data input" ) ;
-      if ( morethanonce > 10 )                    // Happened more than 10 times?
+      if ( morethanonce > 10 )                    // Happened too many times?
       {
         dbgprint ( "Going to restart..." ) ;
         ESP.restart() ;                           // Reset the CPU, probably no return
       }
-      if ( ( datamode == PLAYLISTDATA ) ||         // In playlist mode?
-           ( datamode == PLAYLISTINIT ) ||
-           ( datamode == PLAYLISTHEADER ) )
+      if ( datamode & ( PLAYLISTDATA |            // In playlist mode?
+                        PLAYLISTINIT |
+                        PLAYLISTHEADER ) )
       {
         playlist_num = 0 ;                        // Yes, end of playlist
       }
       if ( ( morethanonce > 0 ) ||                // Happened more than once?
            ( playlist_num > 0 ) )                 // Or playlist active?
       {
+        datamode = STOPREQD ;                     // Stop player
         ini_block.newpreset++ ;                   // Yes, try next channel
         dbgprint ( "Trying other station/file..." ) ;
       }
@@ -904,11 +915,13 @@ void testfile ( char* fspec )
   String   path ;                                      // Full file spec
   File     tfile ;                                     // File containing mp3
   uint32_t len, savlen ;                               // File length
-  uint32_t t0, t1 ;                                    // For time test
+  uint32_t t0, t1, told ;                              // For time test
   uint32_t t_error = 0 ;                               // Number of slow reads
 
+  dbgprint ( "Start test of file %s", fspec ) ;
   t0 = millis() ;                                      // Timestamp at start
   t1 = t0 ;                                            // Prevent uninitialized value
+  told = t0 ;                                          // For report 
   path = String ( "/" ) + String ( fspec ) ;           // Form full path
   tfile = SPIFFS.open ( path, "r" ) ;                  // Open the file
   if ( tfile )
@@ -927,12 +940,16 @@ void testfile ( char* fspec )
       {
         yield() ;
       }
+      if ( ( ( t1 - told ) / 1000 ) > 0 || len == 0 )
+      {
+        // Show results for debug
+        dbgprint ( "Read %s, length %d/%d took %d seconds, %d slow reads",
+             fspec, savlen - len, savlen, ( t1 - t0 ) / 1000, t_error ) ;
+        told = t1 ;
+      }
     }
     tfile.close() ;
   }
-  // Show results for debug
-  dbgprint ( "Read %s, length %d took %d seconds, %d slow reads",
-             fspec, savlen, ( t1 - t0 ) / 1000, t_error ) ;
 }
 
 
@@ -1048,7 +1065,6 @@ void displayinfo ( const char *str, uint16_t pos, uint16_t height, uint16_t colo
 //******************************************************************************************
 void showstreamtitle ( char *ml, bool full )
 {
-  char        streamtitle[150] ;                // Streamtitle from metadata
   char*       p1 ;
   char*       p2 ;
 
@@ -1103,18 +1119,19 @@ void showstreamtitle ( char *ml, bool full )
 //******************************************************************************************
 // Connect to the Internet radio server specified by newpreset.                            *
 //******************************************************************************************
-void connecttohost()
+bool connecttohost()
 {
   char*       p ;                                   // Pointer in hostname
   char*       pfs ;                                 // Pointer to formatted string
   String      extension ;                           // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
 
   dbgprint ( "Connect to new host %s", host ) ;
-  if ( mp3client.connected() )
+  while ( mp3client.connected() )
   {
-    dbgprint ( "Stop client" ) ;                    // Stop conection to host
+    dbgprint ( "Stopping client" ) ;                // Stop conection to host
     mp3client.flush() ;
     mp3client.stop() ;
+    delay ( 500 ) ;
   }
   displayinfo ( "   ** Internet radio **", 0, 20, WHITE ) ;
   port = 80 ;                                       // Default port
@@ -1148,8 +1165,8 @@ void connecttohost()
     *p = '\0' ;                                     // Remove extension from host
     dbgprint ( "Slash in station" ) ;
   }
-  pfs = dbgprint ( "Connect to preset %d, host %s on port %d, extension %s",
-                   currentpreset, host, port, extension.c_str() ) ;
+  pfs = dbgprint ( "Connect to %s on port %d, extension %s",
+                   host, port, extension.c_str() ) ;
   displayinfo ( pfs, 60, 68, YELLOW ) ;             // Show info at position 60
   delay ( 2000 ) ;                                  // Show for some time
   mp3client.flush() ;
@@ -1163,9 +1180,38 @@ void connecttohost()
                       " HTTP/1.1\r\n" +
                       "Host: " + host + "\r\n" +
                       "Icy-MetaData:1\r\n" +
-                      "Connection: close\r\n\r\n");
+                      "Connection: close\r\n\r\n") ;
+    return true ;
   }
-  playing = true ;                                  // Allow data guard
+  dbgprint ( "Request %s failed!", host ) ;
+  return false ;
+}
+
+
+//******************************************************************************************
+//                               C O N N E C T T O F I L E                                 *
+//******************************************************************************************
+// Open the local mp3-file.                                                                *
+//******************************************************************************************
+bool connecttofile()
+{
+  String path ;                                           // Full file spec
+  char*  p ;                                              // Pointer to filename
+  
+  displayinfo ( "   **** MP3 Player ****", 0, 20, WHITE ) ;
+  path = String ( host + 9 ) ;                            // Path, skip the "localhost" part
+  mp3file = SPIFFS.open ( path, "r" ) ;                   // Open the file
+  if ( !mp3file )
+  {
+    dbgprint ( "Error opening file %s", host ) ;          // No luck
+    return false ; 
+  }
+  p = (char*)path.c_str() + 1 ;                           // Point to filename
+  showstreamtitle ( p, true ) ;                           // Show the filename as title
+  displayinfo ( "Playing from local file",
+                60, 68, YELLOW ) ;                        // Show Source at position 60
+  icyname[0] = '\0' ;                                     // No icy name
+  return true ;
 }
 
 
@@ -1179,16 +1225,14 @@ bool connectwifi()
 {
   char*  pfs ;                                         // Pointer to formatted string
 
-  WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
-  WiFi.softAPdisconnect(true) ;
+  WiFi.disconnect() ;                                  // After restart the router could
+  WiFi.softAPdisconnect(true) ;                        // still keep the old connection
   WiFi.begin ( ini_block.ssid.c_str(),
                ini_block.passwd.c_str() ) ;            // Connect to selected SSID
   dbgprint ( "Try WiFi %s", ini_block.ssid.c_str() ) ; // Message to show during WiFi connect
   if (  WiFi.waitForConnectResult() != WL_CONNECTED )  // Try to connect
   {
     dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", APNAME, APNAME ) ;
-    //WiFi.disconnect() ;                              // After restart the router could still keep the old connection
-    //WiFi.softAPdisconnect(true) ;
     WiFi.softAP ( APNAME, APNAME ) ;                   // This ESP will be an AP
     delay ( 5000 ) ;
     pfs = dbgprint ( "IP = 192.168.4.1" ) ;            // Address if AP
@@ -1505,6 +1549,56 @@ void  mk_lsan()
 }
 
 
+//******************************************************************************************
+//                             G E T P R E S E T S                                         *
+//******************************************************************************************
+// Make a list of all preset stations.                                                     *
+// The result will be stored in the String presetlist (global data).                       *
+//******************************************************************************************
+void getpresets()
+{
+  String              path ;                             // Full file spec as string
+  File                inifile ;                          // File containing URL with mp3
+  String              line ;                             // Input line from .ini file
+  int                 inx ;                              // Position of search char in line
+  int                 i ;                                // Loop control
+  char                vnr[3] ;                           // 2 digit presetnumber as string
+  char*               p ;                                // Points to formatted string
+
+  presetlist = String ( "" ) ;                           // No result yet
+  path = String ( INIFILENAME ) ;                        // Form full path
+  inifile = SPIFFS.open ( path, "r" ) ;                  // Open the file
+  if ( inifile )
+  {
+    while ( inifile.available() )
+    {
+      line = inifile.readStringUntil ( '\n' ) ;          // Read next line
+      if ( line.startsWith ( "preset_" ) )               // Found the key?
+      {
+        i = line.substring(7, 9).toInt() ;               // Get index 00..99
+        // Show just comment if available.  Otherwise the preset itself.
+        inx = line.indexOf ( "#" ) ;                     // Get position of "#"
+        if ( inx > 0 )                                   // Hash sign present?
+        {
+          line.remove ( 0, inx + 1 ) ;                   // Yes, remove non-comment part
+        }
+        else
+        {
+          inx = line.indexOf ( "=" ) ;                   // Get position of "="
+          if ( inx > 0 )                                 // Equal sign present?
+          {
+            line.remove ( 0, inx + 1 ) ;                 // Yes, remove first part of line
+          }
+        }
+        line = chomp ( line ) ;                          // Remove garbage from description
+        sprintf ( vnr, "%02d", i ) ;                     // Preset number
+        presetlist += ( String ( vnr ) + line ) ;        // 2 digits plus description
+      }
+    }
+    inifile.close() ;                                    // Close the file
+  }
+}
+
 
 //******************************************************************************************
 //                                   S E T U P                                             *
@@ -1537,12 +1631,13 @@ void setup()
   {
     f = dir.openFile ( "r" ) ;
     filename = dir.fileName() ;
-    dbgprint ( "%-32s - %6d",                          // Show name and size
+    dbgprint ( "%-32s - %7d",                          // Show name and size
                filename.c_str(), f.size() ) ;
   }
   mk_lsan() ;                                          // Make al list of acceptable networks in ini file.
   listNetworks() ;                                     // Search for WiFi networks
   readinifile() ;                                      // Read .ini file
+  getpresets() ;                                       // Get the presets from .ini-file
   WiFi.persistent ( false ) ;                          // Do not save SSID and password
   WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
   WiFi.mode ( WIFI_STA ) ;                             // This ESP is a station
@@ -1556,7 +1651,7 @@ void setup()
              ESP.getSketchSize(),
              ESP.getFreeSketchSpace() ) ;
   pinMode ( BUTTON2, INPUT_PULLUP ) ;                  // Input for control button 2
-  mp3.begin() ;                                        // Initialize VS1053 player
+  vs1053player.begin() ;                               // Initialize VS1053 player
 # if defined ( USETFT )
   tft.begin() ;                                        // Init TFT interface
   tft.fillRect ( 0, 0, 160, 128, BLACK ) ;             // Clear screen does not work when rotated
@@ -1632,87 +1727,167 @@ void setup()
 //******************************************************************************************
 void loop()
 {
-  char*  p ;                                          // Temporary pointer to string
+  char*       p ;                                       // Temporary pointer to string
+  uint32_t    maxfilechunk  ;                           // Maximum number of bytes to read from file
+
 
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
-  while ( ringspace() && mp3client.available() )
+  if ( datamode & ( INIT | HEADER | DATA |             // Test op playing
+                    METADATA | PLAYLISTINIT |
+                    PLAYLISTHEADER |
+                    PLAYLISTDATA ) )
   {
-    putring ( mp3client.read() ) ;                    // Yes, save one byte in ringbuffer
+    if ( localfile )
+    {
+      maxfilechunk = mp3file.available() ;              // Bytes left in file
+      if ( maxfilechunk > 1024 )                        // Reduce byte count for this loop()
+      {
+        maxfilechunk = 1024 ;
+      }
+      while ( ringspace() && maxfilechunk-- )
+      {
+        putring ( mp3file.read() ) ;                    // Yes, store one byte in ringbuffer
+      }
+    }
+    else
+    {
+      maxfilechunk = mp3client.available() ;           // Bytes available from mp3 server
+      if ( maxfilechunk > 1024 )                       // Reduce byte count for this loop()
+      {
+        maxfilechunk = 1024 ;
+      }
+      while ( ringspace() && maxfilechunk-- )
+      {
+        putring ( mp3client.read() ) ;                 // Yes, store one byte in ringbuffer
+      }
+    }
   }
   yield() ;
-  while ( mp3.data_request() && ringavail() )         // Try to keep VS1053 filled
+  while ( vs1053player.data_request() && ringavail() ) // Try to keep VS1053 filled
   {
-    handlebyte ( getring() ) ;                        // Yes, handle it
+    handlebyte ( getring() ) ;                         // Yes, handle it
   }
-  if ( stopreq )                                      // Stop requested?
+  yield() ;
+  if ( datamode == STOPREQD )                          // STOP requested?
   {
-    stopreq = false ;                                 // Yes, stop song
-    playing = false ;                                 // No more guarding
-    mp3client.flush() ;                               // Flush stream client
-    mp3client.stop() ;                                // Stop stream client
-    mp3.setVolume ( 0 ) ;                             // Mute
-    mp3.stopSong() ;                                  // Stop playing
-    emptyring() ;                                     // Empty the ringbuffer
-  }
-  if ( ini_block.newpreset != currentpreset )         // New station or next from playlist requested?
-  {
-    dbgprint ( "New preset/file requested" ) ;
-    mp3.setVolume ( 0 ) ;                             // Mute
-    mp3.stopSong() ;                                  // Stop playing
-    emptyring() ;                                     // Empty the ringbuffer
-    if ( playlist_num )                               // Playing from playlist?
+    dbgprint ( "STOP requested" ) ;
+    if ( localfile )
     {
-      p = playlist ;                                  // Yes, retrieve URL of playlist
-      playlist_num += ini_block.newpreset -
-                      currentpreset ;                 // Next entry in playlist
-      ini_block.newpreset = currentpreset ;           // Stay at current preset
+      mp3file.close() ;
     }
     else
     {
-      p = readhostfrominifile ( ini_block.newpreset ) ; // Lookup preset in ini-file
+      while ( mp3client.connected() )
+      {
+        dbgprint ( "Stopping client" ) ;                // Stop conection to host
+        mp3client.flush() ;
+        mp3client.stop() ;
+        delay ( 500 ) ;
+      }
+      mp3client.flush() ;                              // Flush stream client
+      mp3client.stop() ;                               // Stop stream client
     }
-    if ( p )                                          // Preset in ini-file?
+    handlebyte ( 0, true ) ;                           // Force flush of buffer
+    vs1053player.setVolume ( 0 ) ;                     // Mute
+    vs1053player.stopSong() ;                          // Stop playing
+    emptyring() ;                                      // Empty the ringbuffer
+    datamode = STOPPED ;                               // Yes, state becomes STOPPED
+    #if defined ( USETFT )
+    tft.fillRect ( 0, 0, 160, 128, BLACK ) ;           // Clear screen does not work when rotated
+    #endif
+    delay ( 500 ) ;
+  }
+  if ( localfile )
+  {
+    if ( datamode & ( INIT | HEADER | DATA |           // Test op playing
+                      METADATA | PLAYLISTINIT |
+                      PLAYLISTHEADER |
+                      PLAYLISTDATA ) )
     {
-      strcpy ( host, p ) ;                            // Save it for storage and selection later
-      hostreq = true ;                                // Force this station as new preset
+      if ( ( mp3file.available() == 0 ) && ( ringavail() == 0 ) )
+      {
+        datamode = STOPREQD ;                          // End of local mp3-file detected
+      }
+    }
+  }
+  if ( ini_block.newpreset != currentpreset )          // New station or next from playlist requested?
+  {
+    if ( datamode != STOPPED )                         // Yes, still busy?
+    {
+      datamode = STOPREQD ;                            // Yes, request STOP
     }
     else
     {
-      // This preset is not available, return to preset 0, will be handled in next loop()
-      ini_block.newpreset = 0 ;                       // Wrap to first station
+      dbgprint ( "New preset/file requested" ) ;
+      if ( playlist_num )                               // Playing from playlist?
+      {
+        p = playlist ;                                  // Yes, retrieve URL of playlist
+        playlist_num += ini_block.newpreset -
+                        currentpreset ;                 // Next entry in playlist
+        ini_block.newpreset = currentpreset ;           // Stay at current preset
+      }
+      else
+      {
+        p = readhostfrominifile (ini_block.newpreset) ; // Lookup preset in ini-file
+      }
+      if ( p )                                          // Preset in ini-file?
+      {
+        strcpy ( host, p ) ;                            // Save it for storage and selection later
+        hostreq = true ;                                // Force this station as new preset
+      }
+      else
+      {
+        // This preset is not available, return to preset 0, will be handled in next loop()
+        ini_block.newpreset = 0 ;                       // Wrap to first station
+      }
     }
   }
-  if ( hostreq )                                      // New preset or station?
+  if ( hostreq )                                       // New preset or station?
   {
-    currentpreset = ini_block.newpreset ;             // Remember current preset
-    connecttohost() ;                                 // Switch to new host
     hostreq = false ;
+    currentpreset = ini_block.newpreset ;              // Remember current preset
+    // Find out if this URL is on localhost
+    localfile = ( strstr ( host, "localhost/" ) == host ) ;
+    if ( localfile )                                   // Play file from localhost?
+    {
+      if ( connecttofile() )                           // Yes, open mp3-file
+      {
+        datamode = INIT ;                              // Start in INIT mode
+      }
+    }
+    else
+    {
+      if ( connecttohost() )                           // Switch to new host
+      {
+        datamode = INIT ;                              // Start in INIT mode
+      }
+    }
   }
-  if ( reqtone )                                      // Request to change tone?
+  if ( reqtone )                                       // Request to change tone?
   {
     reqtone = false ;
-    mp3.setTone ( ini_block.rtone ) ;                 // Set SCI_BASS to requested value
+    vs1053player.setTone ( ini_block.rtone ) ;         // Set SCI_BASS to requested value
   }
-  if ( resetreq )                                     // Reset requested?
+  if ( resetreq )                                      // Reset requested?
   {
-    delay ( 1000 ) ;                                  // Yes, wait some time
-    ESP.restart() ;                                   // Reboot
+    delay ( 1000 ) ;                                   // Yes, wait some time
+    ESP.restart() ;                                    // Reboot
   }
   if ( muteflag )
   {
-    mp3.setVolume ( 0 ) ;                             // Mute
+    vs1053player.setVolume ( 0 ) ;                     // Mute
   }
   else
   {
-    mp3.setVolume ( ini_block.reqvol ) ;              // Unmute
+    vs1053player.setVolume ( ini_block.reqvol ) ;       // Unmute
   }
-  if ( *testfilename )                                // File to test?
+  if ( *testfilename )                                  // File to test?
   {
-    testfile ( testfilename ) ;                       // Yes, do the test
-    *testfilename = '\0' ;                            // Clear test request
+    testfile ( testfilename ) ;                         // Yes, do the test
+    *testfilename = '\0' ;                              // Clear test request
   }
-  scanserial() ;                                      // Handle serial input
-  ArduinoOTA.handle() ;                               // Check for OTA
+  scanserial() ;                                        // Handle serial input
+  ArduinoOTA.handle() ;                                 // Check for OTA
 }
 
 
@@ -1755,8 +1930,9 @@ bool chkhdrline ( const char* str )
 // Handle the next byte of data from server.                                               *
 // This byte will be send to the VS1053 most of the time.                                  *
 // Note that the buffer the data chunk must start at an address that is a muttiple of 4.   *
+// Set force to true if chunkbuffer must be flushed.                                       * 
 //******************************************************************************************
-void handlebyte ( uint8_t b )
+void handlebyte ( uint8_t b, bool force )
 {
   static uint16_t  metaindex ;                         // Index in metaline
   static uint16_t  playlistcnt ;                       // Counter to find right entry in playlist
@@ -1780,7 +1956,7 @@ void handlebyte ( uint8_t b )
   if ( datamode == DATA )                              // Handle next byte of MP3/Ogg data
   {
     buf[chunkcount++] = b ;                            // Save byte in cunkbuffer
-    if ( chunkcount == sizeof(buf) )                   // Buffer full?
+    if ( chunkcount == sizeof(buf) || force )          // Buffer full?
     {
       if ( firstchunk )
       {
@@ -1793,7 +1969,7 @@ void handlebyte ( uint8_t b )
                      buf[i + 4], buf[i + 5], buf[i + 6], buf[i + 7] ) ;
         }
       }
-      mp3.playChunk ( buf, chunkcount ) ;              // Yes, send to player
+      vs1053player.playChunk ( buf, chunkcount ) ;     // Yes, send to player
       chunkcount = 0 ;                                 // Reset count
     }
     totalcount++ ;                                     // Count number of bytes, ignore overflow
@@ -1803,7 +1979,7 @@ void handlebyte ( uint8_t b )
       {
         if ( chunkcount )                              // Yes, still data in buffer?
         {
-          mp3.playChunk ( buf, chunkcount ) ;          // Yes, send to player
+          vs1053player.playChunk ( buf, chunkcount ) ; // Yes, send to player
           chunkcount = 0 ;                             // Reset count
         }
         datamode = METADATA ;
@@ -1842,7 +2018,10 @@ void handlebyte ( uint8_t b )
         }
         else if ( ( p = strstr ( metaline, "icy-name:" ) ) )
         {
-          displayinfo ( p+9, 60, 68, YELLOW ) ;        // Show title at position 60
+          displayinfo ( p+9, 60, 68, YELLOW ) ;        // Show station name at position 60
+          strncpy ( icyname, p+9,
+              sizeof ( icyname ) ) ;                   // Save station name
+          icyname[sizeof(icyname)-1] = '\0' ;          // Take care of delimeter 
         }
       }
       if ( LFcount == 2 )
@@ -1852,7 +2031,7 @@ void handlebyte ( uint8_t b )
         datamode = DATA ;                              // Expecting data now
         datacount = metaint ;                          // Number of bytes before first metadata
         chunkcount = 0 ;                               // Reset chunkcount
-        mp3.startSong() ;                              // Start a new song
+        vs1053player.startSong() ;                     // Start a new song
       }
     }
     else
@@ -2101,55 +2280,6 @@ void handleFS ( AsyncWebServerRequest *request )
 
 
 //******************************************************************************************
-//                             G E T P R E S E T S                                         *
-//******************************************************************************************
-// Make a list of all preset stations and return this to the client.                       *
-//******************************************************************************************
-void getpresets ( AsyncWebServerRequest *request )
-{
-  String              path ;                           // Full file spec as string
-  File                inifile ;                        // File containing URL with mp3
-  String              line ;                           // Input line from .ini file
-  String              linelc ;                         // Same, but lowercase
-  int                 inx ;                            // Position of search char in line
-  int                 i ;                              // Loop control
-  AsyncResponseStream *response ;                      // Response to client
-
-  response = request->beginResponseStream ( "text/plain" ) ;
-  path = String ( INIFILENAME ) ;                      // Form full path
-  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
-  if ( inifile )
-  {
-    while ( inifile.available() )
-    {
-      line = inifile.readStringUntil ( '\n' ) ;        // Read next line
-      linelc = line ;                                  // Copy for lowercase
-      linelc.toLowerCase() ;                           // Set to lowercase
-      if ( linelc.startsWith ( "preset_" ) )           // Found the key?
-      {
-        i = linelc.substring(7, 9).toInt() ;           // Get index 00..99
-        inx = line.indexOf ( "#" ) ;                   // Get position of "#"
-        if ( inx > 0 )                                 // Equal sign present?
-        {
-          line.remove ( 0, inx + 1 ) ;                 // Yes, remove non-comment part
-        }
-        else
-        {
-          inx = line.indexOf ( "=" ) ;                 // Get position of "="
-          line.remove ( 0, inx + 1 ) ;                 // Yes, remove first part of line
-        }
-        line = chomp ( line ) ;                        // Remove garbage
-        response->printf ( "%02d%s|", i,
-                           line.c_str() ) ;            // 2 digits plus description
-      }
-    }
-    inifile.close() ;                                  // Close the file
-  }
-  request->send ( response ) ;
-}
-
-
-//******************************************************************************************
 //                             A N A L Y Z E C M D                                         *
 //******************************************************************************************
 // Handling of the various commands from remote webclient, Serial or MQTT.                 *
@@ -2214,6 +2344,7 @@ String chomp ( String str )
 //   station    = <mp3 stream>              // Select new station (will not be saved)      *
 //   station    = <URL>.mp3                 // Play standalone .mp3 file (not saved)       *
 //   station    = <URL>.m3u                 // Select playlist (will not be saved)         *
+//   stop                                   // Stop playing                                *
 //   mute                                   // Mute the music                              *
 //   unmute                                 // Unmute the music                            *
 //   wifi_00    = mySSID/mypassword         // Set WiFi SSID and password *)               *
@@ -2265,7 +2396,7 @@ char* analyzeCmd ( const char* par, const char* val )
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
-    oldvol = mp3.getVolume() ;                        // Get current volume
+    oldvol = vs1053player.getVolume() ;               // Get current volume
     if ( relative )                                   // + relative setting?
     {
       ini_block.reqvol = oldvol + ivalue ;            // Up by 0.5 or more dB
@@ -2306,10 +2437,25 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "stop" )                      // Stop requested
   {
-    stopreq = true ;                                  // Force stop playing
+    if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
+                      PLAYLISTHEADER | PLAYLISTDATA ) )
+   
+    {
+      datamode = STOPREQD ;                           // Request STOP
+    }
+    else
+    {
+      strcpy ( reply, "Command not accepted!" ) ;     // Error reply
+    }
   }
   else if ( argument == "station" )                   // Station in the form address:port
   {
+    if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
+                      PLAYLISTHEADER | PLAYLISTDATA ) )
+   
+    {
+      datamode = STOPREQD ;                           // Request STOP
+    }
     strcpy ( host, value.c_str() ) ;                  // Save it for storage and selection later
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
@@ -2318,8 +2464,15 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "status" )                    // Status request
   {
-    sprintf ( reply, "Playing preset %d - %s",        // Format reply
-              currentpreset, host ) ;
+    if ( datamode == STOPPED )
+    {
+      sprintf ( reply, "Player stopped" ) ;           // Format reply
+    }
+    else
+    {
+      sprintf ( reply, "%s\n%s\n", icyname,
+                streamtitle ) ;                       // Streamtitle from metadata
+    }
   }
   else if ( argument.startsWith ( "reset" ) )         // Reset request
   {
@@ -2328,7 +2481,7 @@ char* analyzeCmd ( const char* par, const char* val )
   else if ( argument == "testfile" )                  // Testfile command?
   {
     strncpy ( testfilename, value.c_str(),
-              sizeof(testfilename) ) ;              // Yes, set file to test accordingly
+              sizeof(testfilename) ) ;                // Yes, set file to test accordingly
   }
   else if ( argument == "test" )                      // Test command
   {
@@ -2487,7 +2640,7 @@ void handleCmd ( AsyncWebServerRequest *request )
   else if ( argument.startsWith ( "list" ) )          // List all presets?
   {
     dbgprint ( "list request from browser" ) ;
-    getpresets ( request ) ;                          // Reply with station presets
+    request->send ( 200, "text/plain", presetlist ) ; // Send the reply
     return ;
   }
   else
