@@ -11,6 +11,7 @@
       <button onclick="httpGet('downpreset=1')">PREV</button>
       <button onclick="httpGet('upvolume=2')">VOL+</button>
       <button onclick="httpGet('downvolume=2')">VOL-</button>
+      <button onclick="httpGet('stop=0')">STOP</button>
       <button onclick="httpGet('status=0')">STATUS</button>
       <button onclick="httpGet('test=0')">TEST</button>
       <input type="button" onclick="location.href='/config.html';" value="Config" />
@@ -90,8 +91,8 @@
       </select> 
       <br>
       <br>
-      <input size="50" id="station" value="Enter new preset station here....">
-      <button onclick="setstat()">ADD</button>
+      <input size="50" id="station" value="Enter a station/file here....">
+      <button onclick="setstat()">PLAY</button>
       <br>
       <br>
       <input size="50" id="resultstr" value="Waiting for a command...."><br>
@@ -177,4 +178,3 @@
     </script>
   </body>
 </html>
-
