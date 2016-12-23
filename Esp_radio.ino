@@ -1592,7 +1592,8 @@ void getpresets()
         }
         line = chomp ( line ) ;                          // Remove garbage from description
         sprintf ( vnr, "%02d", i ) ;                     // Preset number
-        presetlist += ( String ( vnr ) + line ) ;        // 2 digits plus description
+        presetlist += ( String ( vnr ) + line +          // 2 digits plus description
+                        String ( "|" ) ) ;
       }
     }
     inifile.close() ;                                    // Close the file
