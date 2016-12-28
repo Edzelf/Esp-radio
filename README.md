@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 28-dec-2016: Add support for resume after stop.
 - 23-dec-2016: Add support for mp3 files on SPIFFS.
 - 15-nov-2016: Support for .m3u files.
 - 22-oct-2016: Correction mute/unmute.
