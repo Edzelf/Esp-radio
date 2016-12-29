@@ -111,7 +111,7 @@
 // 28-12-2016, ES: Implement "Resume" request.
 //
 // Define the version number:
-#define VERSION "28-dec-2016"
+#define VERSION "29-dec-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -169,7 +169,7 @@ extern "C"
 #define BUTTON2 0
 #define BUTTON3 15
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
-#define RINGBFSIZ 18000
+#define RINGBFSIZ 20000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
