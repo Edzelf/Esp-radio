@@ -1,32 +1,42 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-    <title>ESP-radio config</title>
-  </head>
-  <body style="color: rgb(0, 0, 0); background-color: rgb(204, 255, 255);" alink="#000099" link="#000099" vlink="#990099">
-    <div style="text-align: center;">
-      <b>ESP-radio configuration</b><br>
-      You can edit the configuration here.  Note that this will be effective on the next restart of the Esp-radio.
-      <br><br>
-      Available WiFi networks:<select id="ssid"></select>
-      <hr><br>
-      <textarea rows="25" cols="100" id="inifile">Space for inifile</textarea> 
-      <br><br>
-      <button onclick="location.href='/index.html';">Back</button>
-      <button onclick="fsav()">Save</button>
+ <head>
+  <title>Configuration ESP-radio</title>
+  <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+  <link rel="stylesheet" type="text/css" href="radio.css">
+ </head>
+ <body>
+  <ul>
+   <li><a class="active" href="/index.html">ESP Radio</a></li>
+   <li><a href="/index.html">Control</a></li>
+   <li><a href="/about.html">About</a></li>
+  </ul>
+  <br>
+  <center>
+   <h4>** ESP-radio **</h4>
+   <p>You can edit the configuration here. <i>Note that this will be effective on the next restart of the Esp-radio.</i></p>
+   <h4>Available WiFi networks</h4>
+   <select class="select" onChange="handletone(this)" id="ssid"></select>
+   <br><br>
+   <textarea rows="25" cols="100" id="inifile">Space for inifile</textarea> 
+   <br><br>
+   <button class="button" onclick="fsav()">Save</button>
       &nbsp;&nbsp;
-      <button onclick="httpGet('reset=1')">Restart</button>
-      <hr>
+      <button class="button buttonr" onclick="httpGet('reset')">Restart</button>
       <form action="#" onsubmit="return uploadfile(this);" enctype="multipart/form-data" method="post" name="fileinfo">
-        Upload file:
-        <input type="file" name="file" size="40">
+        <h4>Upload file:</h4>
+        <input type="file" name="file" size="50"><br>
         <input type="submit" value="Send">
       </form>
-      <hr>
-      <input size="80" id="resultstr" value="Waiting for input....">
+      <input type="text" size="80" id="resultstr" value="Waiting for input....">
       <br><br>
-    </div>
+
+
+
+
+
+
+
     <script>
       function httpGet ( theReq )
       {

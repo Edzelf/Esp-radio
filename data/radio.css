@@ -1,0 +1,105 @@
+body {
+    background-color: lightblue;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+h1 {
+    color: navy;
+    margin-left: 20px;
+    font-size: 120%
+}
+
+ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #2C3E50;
+}
+
+li {
+    float: left;
+}
+
+li a {
+    display: block;
+    color: white;
+    text-align: center;
+    padding: 14px 16px;
+    text-decoration: none;
+}
+
+li a:hover {
+    background-color: #111;
+}
+
+.button {
+    width: 70px;
+    height: 40px;
+    background-color: #128F76;
+    border: none;
+    color: white;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    margin: 4px 2px;
+    cursor: pointer;
+    border-radius: 10px;
+}
+
+.buttonr {background-color: #D62C1A;}
+
+.select {
+   width: 160px;
+   height: 32px;
+   padding: 5px;
+   background: transparent;
+   font-size: 16px;
+   line-height: 1;
+   border: 1;
+   border-radius: 5;
+   -webkit-border-radius: 5px;
+   -moz-border-radius: 5px;
+   -webkit-appearance: none;
+   }
+
+.selectw {width: 400px;}
+
+input[type="text"] {
+  margin: 0;
+  height: 28px;
+  background: transparent;
+  font-size: 16px;
+  appearance: none;
+  box-shadow: none;
+  border-radius: 5;
+  -webkit-border-radius: 5px;
+  -moz-border-radius: 5px;
+  -webkit-appearance: none;
+}
+
+input[type="text"]:focus {
+  outline: none;
+}
+
+input[type=submit] {
+    width: 200px;
+    background-color: #128F76;
+    color: white;
+    padding: 14px 20px;
+    margin: 8px 0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+textarea {
+	width: 80;
+	height: 25;
+	border: 3px solid black;
+      border-radius: 10px;
+	padding: 5px;
+	font-family: Courier, "Lucida Console", monospace;
+	background-color: lightblue;
+}
