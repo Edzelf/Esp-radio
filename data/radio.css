@@ -6,19 +6,27 @@ body {
 h1 {
     color: navy;
     margin-left: 20px;
-    font-size: 120%
+    font-size: 150%
 }
 
 ul {
     list-style-type: none;
     margin: 0;
-    padding: 0;
+	margin-left: -10px;
     overflow: hidden;
     background-color: #2C3E50;
+    position:fixed;
+    top:0;
+    width:100%;
+    z-index:100;
 }
 
-li {
+li .pull-left {
     float: left;
+}
+
+li .pull-right {
+	float: right;
 }
 
 li a {
@@ -29,12 +37,12 @@ li a {
     text-decoration: none;
 }
 
-li a:hover {
+li a:hover, a.active {
     background-color: #111;
 }
 
 .button {
-    width: 70px;
+    width: 80px;
     height: 40px;
     background-color: #128F76;
     border: none;
@@ -50,33 +58,41 @@ li a:hover {
 
 .buttonr {background-color: #D62C1A;}
 
+.button-play {
+	height: 30px;
+}
+
 .select {
    width: 160px;
    height: 32px;
    padding: 5px;
-   background: transparent;
+   background: white;
    font-size: 16px;
    line-height: 1;
    border: 1;
-   border-radius: 5;
+   border-radius: 5px;
    -webkit-border-radius: 5px;
    -moz-border-radius: 5px;
    -webkit-appearance: none;
+  border: 1px solid black;
+    border-radius: 10px;
    }
 
-.selectw {width: 400px;}
+.selectw {width: 410px;}
 
 input[type="text"] {
   margin: 0;
   height: 28px;
-  background: transparent;
+  background: white;
   font-size: 16px;
   appearance: none;
   box-shadow: none;
-  border-radius: 5;
+  border-radius: 5px;
   -webkit-border-radius: 5px;
   -moz-border-radius: 5px;
   -webkit-appearance: none;
+  border: 1px solid black;
+    border-radius: 10px;
 }
 
 input[type="text"]:focus {
@@ -85,21 +101,26 @@ input[type="text"]:focus {
 
 input[type=submit] {
     width: 200px;
+    height: 40px;
     background-color: #128F76;
-    color: white;
-    padding: 14px 20px;
-    margin: 8px 0;
     border: none;
-    border-radius: 4px;
+    color: white;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    margin: 4px 2px;
     cursor: pointer;
+    border-radius: 5px;
 }
 
 textarea {
 	width: 80;
 	height: 25;
-	border: 3px solid black;
+	border: 1px solid black;
       border-radius: 10px;
 	padding: 5px;
 	font-family: Courier, "Lucida Console", monospace;
-	background-color: lightblue;
+	background-color: white;
+    resize: none;
 }
