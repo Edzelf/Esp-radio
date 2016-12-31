@@ -109,9 +109,10 @@
 // 15-11-2016, ES: Support for .m3u playlists.
 // 22-12-2016, ES: Support for localhost (play from SPIFFS).
 // 28-12-2016, ES: Implement "Resume" request.
+// 31-12-2016, ES: Allow ContentType "text/css".
 //
 // Define the version number:
-#define VERSION "29-dec-2016"
+#define VERSION "31-dec-2016"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -179,7 +180,6 @@ extern "C"
 #define APNAME "Esp-radio"
 // Maximum number of MQTT reconnects before give-up
 #define MAXMQTTCONNECTS 20
-
 //
 //******************************************************************************************
 // Forward declaration of various functions                                                *
@@ -1981,8 +1981,6 @@ void handlebyte ( uint8_t b, bool force )
     else if ( b == '\n' )                              // Linefeed ?
     {
       LFcount++ ;                                      // Count linefeeds
-      dbgprint ( "Linefeed seen, metaline is %s",
-                 metaline.c_str() ) ;
       if ( chkhdrline ( metaline.c_str() ) )           // Reasonable input?
       {
         dbgprint ( metaline.c_str() ) ;                // Yes, Show it
@@ -2162,6 +2160,7 @@ String getContentType ( String filename )
   else if ( filename.endsWith ( ".gif"  ) ) return "image/gif" ;
   else if ( filename.endsWith ( ".jpg"  ) ) return "image/jpeg" ;
   else if ( filename.endsWith ( ".ico"  ) ) return "image/x-icon" ;
+  else if ( filename.endsWith ( ".css"  ) ) return "text/css" ;
   else if ( filename.endsWith ( ".zip"  ) ) return "application/x-zip" ;
   else if ( filename.endsWith ( ".gz"   ) ) return "application/x-gzip" ;
   else if ( filename.endsWith ( ".pw"   ) ) return "" ;              // Passwords are secret
