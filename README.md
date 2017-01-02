@@ -18,7 +18,7 @@ Features:
 -	Heavily commented source code, easy to add extra functionality.
 -	Debug information through serial output.
 -	20 kB ring buffer to provide smooth playback.
--	SPIFFS filesystem used for website, WiFi SSIDs and passwords.
+-	SPIFFS filesystem used for configuration of WiFi SSIDs, passwords and small MP3-files.
 -	Software update over WiFi possible (OTA).
 -	Saves volume and preset station over restart.
 -	Bass and treble control.
@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 02-jan-2017: Webinterface in PROGMEM.
 - 28-dec-2016: Add support for resume after stop.
 - 23-dec-2016: Add support for mp3 files on SPIFFS.
 - 15-nov-2016: Support for .m3u files.
