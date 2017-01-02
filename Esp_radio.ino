@@ -110,9 +110,10 @@
 // 22-12-2016, ES: Support for localhost (play from SPIFFS).
 // 28-12-2016, ES: Implement "Resume" request.
 // 31-12-2016, ES: Allow ContentType "text/css".
+// 02-01-2017, ES: Webinterface in PROGMEM.
 //
 // Define the version number:
-#define VERSION "31-dec-2016"
+#define VERSION "02-jan-2017"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -185,12 +186,13 @@ extern "C"
 // Forward declaration of various functions                                                *
 //******************************************************************************************
 void   displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color ) ;
-void   showstreamtitle ( const char *ml, bool full = false ) ;
+void   showstreamtitle ( const char* ml, bool full = false ) ;
 void   handlebyte ( uint8_t b, bool force = false ) ;
-void   handleFS ( AsyncWebServerRequest *request ) ;
-void   handleCmd ( AsyncWebServerRequest *request )  ;
-void   handleFileUpload ( AsyncWebServerRequest *request, String filename,
-                          size_t index, uint8_t *data, size_t len, bool final ) ;
+void   handleFS ( AsyncWebServerRequest* request ) ;
+void   handleFSf ( AsyncWebServerRequest* request, String filename ) ;
+void   handleCmd ( AsyncWebServerRequest* request )  ;
+void   handleFileUpload ( AsyncWebServerRequest* request, String filename,
+                          size_t index, uint8_t* data, size_t len, bool final ) ;
 char*  dbgprint( const char* format, ... ) ;
 char*  analyzeCmd ( const char* str ) ;
 char*  analyzeCmd ( const char* par, const char* val ) ;
@@ -274,6 +276,15 @@ bool             localfile = false ;                       // Play from local mp
 //******************************************************************************************
 // End of global data section.                                                             *
 //******************************************************************************************
+
+//******************************************************************************************
+// Pages and CSS for the webinterface.                                                     *
+//******************************************************************************************
+#include "about_html.h"
+#include "config_html.h"
+#include "index_html.h"
+#include "radio_css.h"
+#include "favicon_ico.h"
 //
 //******************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                              *
@@ -2223,26 +2234,58 @@ void handleFileUpload ( AsyncWebServerRequest *request, String filename,
 
 
 //******************************************************************************************
-//                                H A N D L E F S                                          *
+//                                H A N D L E F S F                                        *
 //******************************************************************************************
-// Handling of requesting files from the SPIFFS. Example: /favicon.ico                     *
+// Handling of requesting files from the SPIFFS/PROGMEM. Example: /favicon.ico             *
 //******************************************************************************************
-void handleFS ( AsyncWebServerRequest *request )
+void handleFSf ( AsyncWebServerRequest* request, String filename )
 {
-  String fnam ;                                         // Requested file
   String ct ;                                           // Content type
 
-  fnam = request->url() ;
-  dbgprint ( "onFileRequest received %s", fnam.c_str() ) ;
-  ct = getContentType ( fnam ) ;                        // Get content type
+  dbgprint ( "FileRequest received %s", filename.c_str() ) ;
+  ct = getContentType ( filename ) ;                    // Get content type
   if ( ct == "" )                                       // Empty is illegal
   {
     request->send ( 404, "text/plain", "File not found" ) ;
   }
   else
   {
-    request->send ( SPIFFS, fnam, ct ) ;                // Okay, send the file
+    if ( filename.indexOf ( "index.html" ) >= 0 )       // Index page is in PROGMEM
+    {
+      request->send_P ( 200, ct, index_html ) ; 
+    }
+    else if ( filename.indexOf ( "radio.css" ) >= 0 )   // CSS file is in PROGMEM
+    {
+      request->send_P ( 200, ct, radio_css ) ; 
+    }
+    else if ( filename.indexOf ( "config.html" ) >= 0 ) // Confige page is in PROGMEM
+    {
+      request->send_P ( 200, ct, config_html ) ; 
+    }
+    else if ( filename.indexOf ( "about.html" ) >= 0 )  // About page is in PROGMEM
+    {
+      request->send_P ( 200, ct, about_html ) ; 
+    }
+    else if ( filename.indexOf ( "favicon.ico" ) >= 0 ) // Favicon icon is in PROGMEM
+    {
+      request->send_P ( 200, ct, favicon_ico, sizeof ( favicon_ico ) ) ;
+    }
+    else
+    {
+      request->send ( SPIFFS, filename, ct ) ;          // Send the file from SPIFFS
+    }
   }
+}
+
+
+//******************************************************************************************
+//                                H A N D L E F S                                          *
+//******************************************************************************************
+// Handling of requesting files from the SPIFFS. Example: /favicon.ico                     *
+//******************************************************************************************
+void handleFS ( AsyncWebServerRequest* request )
+{
+  handleFSf ( request, request->url() ) ;               // Rest of handling
 }
 
 
@@ -2568,44 +2611,42 @@ char* analyzeCmd ( const char* par, const char* val )
 // Example: "/?upvolume=5&version=0.9775479450590543"                                      *
 // The save and the list commands are handled specially.                                   *
 //******************************************************************************************
-void handleCmd ( AsyncWebServerRequest *request )
+void handleCmd ( AsyncWebServerRequest* request )
 {
-  AsyncWebParameter* p ;                              // Points to parameter structure
-  String             argument ;                       // Next argument in command
-  String             value ;                          // Value of an argument
-  const char*        reply ;                          // Reply to client
-  uint32_t           t ;                              // For time test
-  int                params ;                         // Number of params
-  File               f ;                              // Handle for writing /radio.ini to SPIFFS
+  AsyncWebParameter* p ;                                // Points to parameter structure
+  String             argument ;                         // Next argument in command
+  String             value ;                            // Value of an argument
+  const char*        reply ;                            // Reply to client
+  uint32_t           t ;                                // For time test
+  int                params ;                           // Number of params
+  File               f ;                                // Handle for writing /radio.ini to SPIFFS
 
-  t = millis() ;                                      // Timestamp at start
-  params = request->params() ;                        // Get number of arguments
-  if ( params == 0 )                                  // Any arguments
+  t = millis() ;                                        // Timestamp at start
+  params = request->params() ;                          // Get number of arguments
+  if ( params == 0 )                                    // Any arguments
   {
     if ( NetworkFound )
     {
-      request->send ( SPIFFS, "/index.html",          // No parameters, send the startpage
-                      "text/html" ) ;
+      handleFSf ( request, String( "/index.html") ) ;   // No parameters, send the startpage
     }
     else
     {
-      request->send ( SPIFFS, "/config.html",        // Or the configuration page if in AP mode
-                      "text/html" ) ;
+      handleFSf ( request, String( "/config.html") ) ;  // Or the configuration page if in AP mode
     }
     return ;
   }
-  p = request->getParam ( 0 ) ;                       // Get pointer to parameter structure
-  argument = p->name() ;                              // Get the argument
-  argument.toLowerCase() ;                            // Force to lower case
-  value = p->value() ;                                // Get the specified value
+  p = request->getParam ( 0 ) ;                         // Get pointer to parameter structure
+  argument = p->name() ;                                // Get the argument
+  argument.toLowerCase() ;                              // Force to lower case
+  value = p->value() ;                                  // Get the specified value
   // For the "save" command, the contents is the value of the next parameter
   if ( argument.startsWith ( "save" ) && ( params > 1 ) )
   {
-    reply = "Error saving " INIFILENAME ;             // Default reply
-    p = request->getParam ( 1 ) ;                     // Get pointer to next parameter structure
-    if ( p->isPost() )                                // Does it have a POST?
+    reply = "Error saving " INIFILENAME ;               // Default reply
+    p = request->getParam ( 1 ) ;                       // Get pointer to next parameter structure
+    if ( p->isPost() )                                  // Does it have a POST?
     {
-      f = SPIFFS.open ( INIFILENAME, "w" ) ;          // Save to inifile
+      f = SPIFFS.open ( INIFILENAME, "w" ) ;            // Save to inifile
       if ( f )
       {
         f.print ( p->value() ) ;
@@ -2614,24 +2655,24 @@ void handleCmd ( AsyncWebServerRequest *request )
       }
     }
   }
-  else if ( argument.startsWith ( "list" ) )          // List all presets?
+  else if ( argument.startsWith ( "list" ) )            // List all presets?
   {
     dbgprint ( "list request from browser" ) ;
-    request->send ( 200, "text/plain", presetlist ) ; // Send the reply
+    request->send ( 200, "text/plain", presetlist ) ;   // Send the reply
     return ;
   }
   else
   {
-    reply = analyzeCmd ( argument.c_str(),            // Analyze it
+    reply = analyzeCmd ( argument.c_str(),              // Analyze it
                          value.c_str() ) ;
   }
-  request->send ( 200, "text/plain", reply ) ;        // Send the reply
+  request->send ( 200, "text/plain", reply ) ;          // Send the reply
   t = millis() - t ;
   // If it takes too long to send a reply, we run into the "LmacRxBlk:1"-problem.
   // Reset the ESP8266.....
   if ( t > 8000 )
   {
-    ESP.restart() ;                                   // Last resource
+    ESP.restart() ;                                     // Last resource
   }
 }
 
