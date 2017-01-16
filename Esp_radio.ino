@@ -111,6 +111,7 @@
 // 28-12-2016, ES: Implement "Resume" request.
 // 31-12-2016, ES: Allow ContentType "text/css".
 // 02-01-2017, ES: Webinterface in PROGMEM.
+// 16-01-2017, ES: Correction playlists.
 //
 // Define the version number, also used for webserver as Last-Modified header:
 #define VERSION "Mon, 16 Jan 2017 08:30:00 GMT"
@@ -1728,7 +1729,6 @@ void loop()
   uint32_t    maxfilechunk  ;                           // Max number of bytes to read from
                                                         // stream or file
 
-
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |             // Test op playing
                     METADATA | PLAYLISTINIT |
@@ -1738,9 +1738,9 @@ void loop()
     if ( localfile )
     {
       maxfilechunk = mp3file.available() ;              // Bytes left in file
-      if ( maxfilechunk > 64 )                          // Reduce byte count for this loop()
+      if ( maxfilechunk > 1024 )                        // Reduce byte count for this loop()
       {
-        maxfilechunk = 64 ;
+        maxfilechunk = 1024 ;
       }
       while ( ringspace() && maxfilechunk-- )
       {
@@ -1751,9 +1751,9 @@ void loop()
     else
     {
       maxfilechunk = mp3client.available() ;           // Bytes available from mp3 server
-      if ( maxfilechunk > 64 )                         // Reduce byte count for this loop()
+      if ( maxfilechunk > 1024 )                       // Reduce byte count for this loop()
       {
-        maxfilechunk = 64 ;
+        maxfilechunk = 1024 ;
       }
       while ( ringspace() && maxfilechunk-- )
       {
@@ -1856,7 +1856,7 @@ void loop()
     {
       if ( connecttohost() )                           // Switch to new host
       {
-        datamode = INIT ;                              // Start in INIT mode
+        //datamode = INIT ;                            // datamode already set
       }
     }
   }
