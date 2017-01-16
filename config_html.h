@@ -6,7 +6,6 @@ const char config_html[] PROGMEM = R"=====(
  <head>
   <title>Configuration ESP-radio</title>
   <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-  <link rel="stylesheet" type="text/css" href="radio.css">
   <link rel="Shortcut Icon" type="image/ico" href="favicon.ico">
  </head>
  <body>
@@ -26,21 +25,15 @@ const char config_html[] PROGMEM = R"=====(
    <textarea rows="25" cols="100" id="inifile">Space for inifile</textarea> 
    <br><br>
    <button class="button" onclick="fsav()">Save</button>
-      &nbsp;&nbsp;
-      <button class="button buttonr" onclick="httpGet('reset')">Restart</button>
-      <form action="#" onsubmit="return uploadfile(this);" enctype="multipart/form-data" method="post" name="fileinfo">
-        <h4>Upload file:</h4>
-        <input type="file" name="file" size="50"><br>
-        <input type="submit" value="Send">
-      </form>
-      <br><input type="text" size="80" id="resultstr" placeholder="Waiting for input....">
-      <br><br>
-
-
-
-
-
-
+   &nbsp;&nbsp;
+   <button class="button buttonr" onclick="httpGet('reset')">Restart</button>
+   <form action="#" onsubmit="return uploadfile(this);" enctype="multipart/form-data" method="post" name="fileinfo">
+     <h4>Upload file:</h4>
+     <input type="file" name="file" size="50"><br>
+     <input type="submit" value="Send">
+    </form>
+    <br><input type="text" size="80" id="resultstr" placeholder="Waiting for input....">
+    <br><br>
 
     <script>
       function httpGet ( theReq )
@@ -130,6 +123,13 @@ const char config_html[] PROGMEM = R"=====(
       }
       xhr.open ( "GET", theUrl, false ) ;
       xhr.send() ;
+    </script>
+    <script type="text/javascript">
+      var stylesheet = document.createElement('link') ;
+      stylesheet.href = 'radio.css' ;
+      stylesheet.rel = 'stylesheet' ;
+      stylesheet.type = 'text/css' ;
+      document.getElementsByTagName('head')[0].appendChild(stylesheet) ;
     </script>
   </body>
 </html>

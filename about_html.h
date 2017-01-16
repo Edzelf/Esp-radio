@@ -6,7 +6,6 @@ const char about_html[] PROGMEM = R"=====(
  <head>
   <title>About ESP-radio</title>
   <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-  <link rel="stylesheet" type="text/css" href="radio.css">
   <link rel="Shortcut Icon" type="image/ico" href="favicon.ico">
  </head>
  <body>
@@ -26,6 +25,13 @@ const char about_html[] PROGMEM = R"=====(
 	Webinterface design: <a target="blank" href="http://www.sanderjochems.nl/">Sander Jochems</a><br>
 	App (Android): <a target="blank" href="http://www.sanderjochems.nl/projects/2">Sander Jochems</a><br>
 	Date: 02 Jan 2017</p>
+  <script type="text/javascript">
+    var stylesheet = document.createElement('link') ;
+    stylesheet.href = 'radio.css' ;
+    stylesheet.rel = 'stylesheet' ;
+    stylesheet.type = 'text/css' ;
+    document.getElementsByTagName('head')[0].appendChild(stylesheet) ;
+  </script>
  </body>
 </html>
 )=====" ;

@@ -112,8 +112,8 @@
 // 31-12-2016, ES: Allow ContentType "text/css".
 // 02-01-2017, ES: Webinterface in PROGMEM.
 //
-// Define the version number:
-#define VERSION "02-jan-2017"
+// Define the version number, also used for webserver as Last-Modified header:
+#define VERSION "Mon, 16 Jan 2017 08:30:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -178,7 +178,8 @@ extern "C"
 #define INIFILENAME "/radio.ini"
 // Access point name if connection to WiFi network fails.  Also the hostname for WiFi and OTA.
 // Not that the password of an AP must be at least as long as 8 characters.
-#define APNAME "Esp-radio"
+// Also used for other naming.
+#define NAME "Esp-radio"
 // Maximum number of MQTT reconnects before give-up
 #define MAXMQTTCONNECTS 20
 //
@@ -189,7 +190,7 @@ void   displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t co
 void   showstreamtitle ( const char* ml, bool full = false ) ;
 void   handlebyte ( uint8_t b, bool force = false ) ;
 void   handleFS ( AsyncWebServerRequest* request ) ;
-void   handleFSf ( AsyncWebServerRequest* request, String filename ) ;
+void   handleFSf ( AsyncWebServerRequest* request, const String& filename ) ;
 void   handleCmd ( AsyncWebServerRequest* request )  ;
 void   handleFileUpload ( AsyncWebServerRequest* request, String filename,
                           size_t index, uint8_t* data, size_t len, bool final ) ;
@@ -1230,8 +1231,8 @@ bool connectwifi()
   dbgprint ( "Try WiFi %s", ini_block.ssid.c_str() ) ; // Message to show during WiFi connect
   if (  WiFi.waitForConnectResult() != WL_CONNECTED )  // Try to connect
   {
-    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", APNAME, APNAME ) ;
-    WiFi.softAP ( APNAME, APNAME ) ;                   // This ESP will be an AP
+    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", NAME, NAME ) ;
+    WiFi.softAP ( NAME, NAME ) ;                       // This ESP will be an AP
     delay ( 5000 ) ;
     pfs = dbgprint ( "IP = 192.168.4.1" ) ;            // Address if AP
     return false ;
@@ -1638,7 +1639,7 @@ void setup()
   WiFi.persistent ( false ) ;                          // Do not save SSID and password
   WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
   WiFi.mode ( WIFI_STA ) ;                             // This ESP is a station
-  wifi_station_set_hostname ( (char*)"ESP-radio" ) ;
+  wifi_station_set_hostname ( (char*)NAME ) ;
   SPI.begin() ;                                        // Init SPI bus
   // Print some memory and sketch info
   dbgprint ( "Starting ESP Version %s...  Free memory %d",
@@ -1675,7 +1676,7 @@ void setup()
   cmdserver.begin() ;
   if ( NetworkFound )                                  // OTA and MQTT only if Wifi network found
   {
-    ArduinoOTA.setHostname ( (char*)APNAME ) ;         // Set the hostname
+    ArduinoOTA.setHostname ( NAME ) ;                  // Set the hostname
     ArduinoOTA.onStart ( otastart ) ;
     ArduinoOTA.begin() ;                               // Allow update over the air
     if ( ini_block.mqttbroker.length() )               // Broker specified?
@@ -1693,7 +1694,7 @@ void setup()
                              ini_block.mqttport ) ;    // And the port
       mqttclient.setCredentials ( ini_block.mqttuser.c_str(),
                                   ini_block.mqttpasswd.c_str() ) ;
-      mqttclient.setClientId ( "Esp-radio" ) ;
+      mqttclient.setClientId ( NAME ) ;
       dbgprint ( "Connecting to MQTT %s, port %d, user %s, password %s...",
                  ini_block.mqttbroker.c_str(),
                  ini_block.mqttport,
@@ -1703,7 +1704,7 @@ void setup()
     }
   }
   delay ( 1000 ) ;                                     // Show IP for a wile
-  ArduinoOTA.setHostname ( "ESP-radio" ) ;             // Set the hostname
+  ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
   ArduinoOTA.onStart ( otastart ) ;
   ArduinoOTA.begin() ;                                 // Allow update over the air
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
@@ -1724,7 +1725,8 @@ void setup()
 //******************************************************************************************
 void loop()
 {
-  uint32_t    maxfilechunk  ;                           // Max number of bytes to read from file
+  uint32_t    maxfilechunk  ;                           // Max number of bytes to read from
+                                                        // stream or file
 
 
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
@@ -1736,29 +1738,30 @@ void loop()
     if ( localfile )
     {
       maxfilechunk = mp3file.available() ;              // Bytes left in file
-      if ( maxfilechunk > 1024 )                        // Reduce byte count for this loop()
+      if ( maxfilechunk > 64 )                          // Reduce byte count for this loop()
       {
-        maxfilechunk = 1024 ;
+        maxfilechunk = 64 ;
       }
       while ( ringspace() && maxfilechunk-- )
       {
         putring ( mp3file.read() ) ;                    // Yes, store one byte in ringbuffer
+        yield() ;
       }
     }
     else
     {
       maxfilechunk = mp3client.available() ;           // Bytes available from mp3 server
-      if ( maxfilechunk > 1024 )                       // Reduce byte count for this loop()
+      if ( maxfilechunk > 64 )                         // Reduce byte count for this loop()
       {
-        maxfilechunk = 1024 ;
+        maxfilechunk = 64 ;
       }
       while ( ringspace() && maxfilechunk-- )
       {
         putring ( mp3client.read() ) ;                 // Yes, store one byte in ringbuffer
+        yield() ;
       }
     }
   }
-  yield() ;
   while ( vs1053player.data_request() && ringavail() ) // Try to keep VS1053 filled
   {
     handlebyte ( getring() ) ;                         // Yes, handle it
@@ -1775,7 +1778,7 @@ void loop()
     {
       while ( mp3client.connected() )
       {
-        dbgprint ( "Stopping client" ) ;                // Stop conection to host
+        dbgprint ( "Stopping client" ) ;               // Stop connection to host
         mp3client.flush() ;
         mp3client.stop() ;
         delay ( 500 ) ;
@@ -2238,9 +2241,10 @@ void handleFileUpload ( AsyncWebServerRequest *request, String filename,
 //******************************************************************************************
 // Handling of requesting files from the SPIFFS/PROGMEM. Example: /favicon.ico             *
 //******************************************************************************************
-void handleFSf ( AsyncWebServerRequest* request, String filename )
+void handleFSf ( AsyncWebServerRequest* request, const String& filename )
 {
-  String ct ;                                           // Content type
+  static String          ct ;                           // Content type
+  AsyncWebServerResponse *response ;                    // For extra headers
 
   dbgprint ( "FileRequest received %s", filename.c_str() ) ;
   ct = getContentType ( filename ) ;                    // Get content type
@@ -2252,29 +2256,36 @@ void handleFSf ( AsyncWebServerRequest* request, String filename )
   {
     if ( filename.indexOf ( "index.html" ) >= 0 )       // Index page is in PROGMEM
     {
-      request->send_P ( 200, ct, index_html ) ; 
+      response = request->beginResponse_P ( 200, ct, index_html ) ;
     }
     else if ( filename.indexOf ( "radio.css" ) >= 0 )   // CSS file is in PROGMEM
     {
-      request->send_P ( 200, ct, radio_css ) ; 
+      response = request->beginResponse_P ( 200, ct, radio_css ) ;
     }
     else if ( filename.indexOf ( "config.html" ) >= 0 ) // Confige page is in PROGMEM
     {
-      request->send_P ( 200, ct, config_html ) ; 
+      response = request->beginResponse_P ( 200, ct, config_html ) ;
     }
     else if ( filename.indexOf ( "about.html" ) >= 0 )  // About page is in PROGMEM
     {
-      request->send_P ( 200, ct, about_html ) ; 
+      response = request->beginResponse_P ( 200, ct, about_html ) ;
     }
     else if ( filename.indexOf ( "favicon.ico" ) >= 0 ) // Favicon icon is in PROGMEM
     {
-      request->send_P ( 200, ct, favicon_ico, sizeof ( favicon_ico ) ) ;
+      response = request->beginResponse_P ( 200, ct, favicon_ico, sizeof ( favicon_ico ) ) ;
     }
     else
     {
-      request->send ( SPIFFS, filename, ct ) ;          // Send the file from SPIFFS
+      response = request->beginResponse ( SPIFFS, filename, ct ) ;
+      request->send ( response ) ;
     }
   }
+  // Add extra headers
+  response->addHeader ( "Server", NAME ) ;
+  response->addHeader ( "Cache-Control", "max-age=3600" ) ;
+  response->addHeader ( "Last-Modified", VERSION ) ;
+  request->send ( response ) ;
+  dbgprint ( "Response sent" ) ;
 }
 
 
@@ -2592,8 +2603,8 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else
   {
-    sprintf ( reply, "ESP-radio called with illegal parameter: %s",
-              argument.c_str() ) ;
+    sprintf ( reply, "%s called with illegal parameter: %s",
+              NAME, argument.c_str() ) ;
   }
   return reply ;                                      // Return reply to the caller
 }
@@ -2614,14 +2625,14 @@ char* analyzeCmd ( const char* par, const char* val )
 void handleCmd ( AsyncWebServerRequest* request )
 {
   AsyncWebParameter* p ;                                // Points to parameter structure
-  String             argument ;                         // Next argument in command
-  String             value ;                            // Value of an argument
+  static String      argument ;                         // Next argument in command
+  static String      value ;                            // Value of an argument
   const char*        reply ;                            // Reply to client
-  uint32_t           t ;                                // For time test
+  //uint32_t         t ;                                // For time test
   int                params ;                           // Number of params
-  File               f ;                                // Handle for writing /radio.ini to SPIFFS
+  static File        f ;                                // Handle for writing /radio.ini to SPIFFS
 
-  t = millis() ;                                        // Timestamp at start
+  //t = millis() ;                                      // Timestamp at start
   params = request->params() ;                          // Get number of arguments
   if ( params == 0 )                                    // Any arguments
   {
@@ -2667,12 +2678,12 @@ void handleCmd ( AsyncWebServerRequest* request )
                          value.c_str() ) ;
   }
   request->send ( 200, "text/plain", reply ) ;          // Send the reply
-  t = millis() - t ;
+  //t = millis() - t ;
   // If it takes too long to send a reply, we run into the "LmacRxBlk:1"-problem.
   // Reset the ESP8266.....
-  if ( t > 8000 )
-  {
-    ESP.restart() ;                                     // Last resource
-  }
+  //if ( t > 8000 )
+  //{
+  //  ESP.restart() ;                                   // Last resource
+  //}
 }
 

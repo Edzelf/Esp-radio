@@ -6,7 +6,6 @@ const char index_html[] PROGMEM = R"=====(
  <head>
   <title>ESP-radio</title>
   <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-  <link rel="stylesheet" type="text/css" href="radio.css">
   <link rel="Shortcut Icon" type="image/ico" href="favicon.ico">
  </head>
  <body>
@@ -216,6 +215,17 @@ const char index_html[] PROGMEM = R"=====(
    xhr.open ( "GET", theUrl, false ) ;
    xhr.send() ;
   </script>
+  <script type="text/javascript">
+    var stylesheet = document.createElement('link') ;
+    stylesheet.href = 'radio.css' ;
+    stylesheet.rel = 'stylesheet' ;
+    stylesheet.type = 'text/css' ;
+    document.getElementsByTagName('head')[0].appendChild(stylesheet) ;
+  </script>
  </body>
 </html>
+<noscript>
+  <link rel="stylesheet" href="radio.css">
+  Sorry, ESP-radio does not work without JavaScript!
+</noscript>
 )=====" ;
