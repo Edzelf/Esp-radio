@@ -112,9 +112,10 @@
 // 31-12-2016, ES: Allow ContentType "text/css".
 // 02-01-2017, ES: Webinterface in PROGMEM.
 // 16-01-2017, ES: Correction playlists.
+// 17-01-2017, ES: Bugfix config page.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Mon, 16 Jan 2017 08:30:00 GMT"
+#define VERSION "Tue, 17 Jan 2017 08:00:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -1657,9 +1658,9 @@ void setup()
   tft.setRotation ( 3 ) ;                              // Use landscape format
   tft.clearScreen() ;                                  // Clear screen
   tft.setTextSize ( 1 ) ;                              // Small character font
-  tft.setTextColor ( WHITE ) ;
+  tft.setTextColor ( WHITE ) ;                         // Info in white
   tft.println ( "Starting" ) ;
-  tft.print   ( "Version " ) ;
+  tft.println ( "Version:" ) ;
   tft.println ( VERSION ) ;
 #else
   pinMode ( BUTTON1, INPUT_PULLUP ) ;                  // Input for control button 1
@@ -1730,7 +1731,7 @@ void loop()
                                                         // stream or file
 
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
-  if ( datamode & ( INIT | HEADER | DATA |             // Test op playing
+  if ( datamode & ( INIT | HEADER | DATA |              // Test op playing
                     METADATA | PLAYLISTINIT |
                     PLAYLISTHEADER |
                     PLAYLISTDATA ) )
@@ -1826,11 +1827,11 @@ void loop()
       }
       else
       {
-        host = readhostfrominifile (ini_block.newpreset) ; // Lookup preset in ini-file
+        host = readhostfrominifile(ini_block.newpreset) ; // Lookup preset in ini-file
       }
-      if ( host != ""  )                                   // Preset in ini-file?
+      if ( host != ""  )                                // Preset in ini-file?
       {
-        hostreq = true ;                                   // Force this station as new preset
+        hostreq = true ;                                // Force this station as new preset
       }
       else
       {
@@ -1839,40 +1840,40 @@ void loop()
       }
     }
   }
-  if ( hostreq )                                       // New preset or station?
+  if ( hostreq )                                        // New preset or station?
   {
     hostreq = false ;
-    currentpreset = ini_block.newpreset ;              // Remember current preset
+    currentpreset = ini_block.newpreset ;               // Remember current preset
     // Find out if this URL is on localhost
     localfile = ( host.indexOf ( "localhost/" ) >= 0 ) ;
-    if ( localfile )                                   // Play file from localhost?
+    if ( localfile )                                    // Play file from localhost?
     {
-      if ( connecttofile() )                           // Yes, open mp3-file
+      if ( connecttofile() )                            // Yes, open mp3-file
       {
-        datamode = INIT ;                              // Start in INIT mode
+        datamode = INIT ;                               // Start in INIT mode
       }
     }
     else
     {
-      if ( connecttohost() )                           // Switch to new host
+      if ( connecttohost() )                            // Switch to new host
       {
-        //datamode = INIT ;                            // datamode already set
+        //datamode = INIT ;                             // datamode already set
       }
     }
   }
-  if ( reqtone )                                       // Request to change tone?
+  if ( reqtone )                                        // Request to change tone?
   {
     reqtone = false ;
-    vs1053player.setTone ( ini_block.rtone ) ;         // Set SCI_BASS to requested value
+    vs1053player.setTone ( ini_block.rtone ) ;          // Set SCI_BASS to requested value
   }
-  if ( resetreq )                                      // Reset requested?
+  if ( resetreq )                                       // Reset requested?
   {
-    delay ( 1000 ) ;                                   // Yes, wait some time
-    ESP.restart() ;                                    // Reboot
+    delay ( 1000 ) ;                                    // Yes, wait some time
+    ESP.restart() ;                                     // Reboot
   }
   if ( muteflag )
   {
-    vs1053player.setVolume ( 0 ) ;                     // Mute
+    vs1053player.setVolume ( 0 ) ;                      // Mute
   }
   else
   {
@@ -2051,22 +2052,22 @@ void handlebyte ( uint8_t b, bool force )
     }
     else
     {
-      metaline += (char)b ;                           // Normal character, put new char in metaline
+      metaline += (char)b ;                            // Normal character, put new char in metaline
     }
     if ( --metacount == 0 )
     {
-      if ( metaline.length() )                        // Any info present?
+      if ( metaline.length() )                         // Any info present?
       {
         // metaline contains artist and song name.  For example:
         // "StreamTitle='Don McLean - American Pie';StreamUrl='';"
         // Sometimes it is just other info like:
         // "StreamTitle='60s 03 05 Magic60s';StreamUrl='';"
         // Isolate the StreamTitle, remove leading and trailing quotes if present.
-        showstreamtitle ( metaline.c_str() ) ;        // Show artist and title if present in metadata
+        showstreamtitle ( metaline.c_str() ) ;         // Show artist and title if present in metadata
       }
-      datacount = metaint ;                           // Reset data count
-      chunkcount = 0 ;                                // Reset chunkcount
-      datamode = DATA ;                               // Expecting data
+      datacount = metaint ;                            // Reset data count
+      chunkcount = 0 ;                                 // Reset chunkcount
+      datamode = DATA ;                                // Expecting data
     }
   }
   if ( datamode == PLAYLISTINIT )                      // Initialize for receive .m3u file
@@ -2101,29 +2102,29 @@ void handlebyte ( uint8_t b, bool force )
     }
     else
     {
-      metaline += (char)b ;                           // Normal character, put new char in metaline
-      LFcount = 0 ;                                   // Reset double CRLF detection
+      metaline += (char)b ;                            // Normal character, put new char in metaline
+      LFcount = 0 ;                                    // Reset double CRLF detection
     }
   }
-  if ( datamode == PLAYLISTDATA )                     // Read next byte of .m3u file data
+  if ( datamode == PLAYLISTDATA )                      // Read next byte of .m3u file data
   {
-    if ( ( b > 0x7F ) ||                              // Ignore unprintable characters
-         ( b == '\r' ) ||                             // Ignore CR
-         ( b == '\0' ) )                              // Ignore NULL
+    if ( ( b > 0x7F ) ||                               // Ignore unprintable characters
+         ( b == '\r' ) ||                              // Ignore CR
+         ( b == '\0' ) )                               // Ignore NULL
     {
       // Yes, ignore
     }
-    else if ( b == '\n' )                             // Linefeed ?
+    else if ( b == '\n' )                              // Linefeed ?
     {
-      if ( metaline.length() == 0 )                   // Skip empty lines
+      if ( metaline.length() == 0 )                    // Skip empty lines
       {
         return ;
       }
-      if ( metaline.indexOf ( "#EXTINF:" ) >= 0 )     // Info?
+      if ( metaline.indexOf ( "#EXTINF:" ) >= 0 )      // Info?
       {
-        if ( playlist_num == playlistcnt )            // Info for this entry?
+        if ( playlist_num == playlistcnt )             // Info for this entry?
         {
-          inx = metaline.indexOf ( "," ) ;            // Comma in this line?
+          inx = metaline.indexOf ( "," ) ;             // Comma in this line?
           if ( inx > 0 )
           {
             // Show artist and title if present in metadata
@@ -2131,31 +2132,31 @@ void handlebyte ( uint8_t b, bool force )
           }
         }
       }
-      if ( metaline.startsWith ( "#" ) )              // Commentline?
+      if ( metaline.startsWith ( "#" ) )               // Commentline?
       {
         metaline = "" ;
-        return ;                                      // Ignore commentlines
+        return ;                                       // Ignore commentlines
       }
       // Now we have an URL for a .mp3 file or stream.  Is it the rigth one?
       dbgprint ( "Entry %d in playlist found: %s", playlistcnt, metaline.c_str() ) ;
       if ( playlist_num == playlistcnt  )
       {
-        if ( metaline.startsWith ( "http://" ) )      // Does URL contain "http://"?
+        if ( metaline.startsWith ( "http://" ) )       // Does URL contain "http://"?
         {
-          host = metaline.substring ( 7 ) ;           // Yes, remove it and set host
+          host = metaline.substring ( 7 ) ;            // Yes, remove it and set host
         }
         else
         {
-          host = metaline ;                           // Yes, set new host
+          host = metaline ;                            // Yes, set new host
         }
-        connecttohost() ;                             // Connect to it
+        connecttohost() ;                              // Connect to it
       }
       metaline = "" ;
-      playlistcnt++ ;                                 // Next entry in playlist
+      playlistcnt++ ;                                  // Next entry in playlist
     }
     else
     {
-      metaline += (char)b ;                           // Normal character, put new char in metaline
+      metaline += (char)b ;                            // Normal character, add it to metaline
     }
     return ;
   }
@@ -2177,6 +2178,7 @@ String getContentType ( String filename )
   else if ( filename.endsWith ( ".css"  ) ) return "text/css" ;
   else if ( filename.endsWith ( ".zip"  ) ) return "application/x-zip" ;
   else if ( filename.endsWith ( ".gz"   ) ) return "application/x-gzip" ;
+  else if ( filename.endsWith ( ".mp3"  ) ) return "audio/mpeg" ;
   else if ( filename.endsWith ( ".pw"   ) ) return "" ;              // Passwords are secret
   return "text/plain" ;
 }
@@ -2262,7 +2264,7 @@ void handleFSf ( AsyncWebServerRequest* request, const String& filename )
     {
       response = request->beginResponse_P ( 200, ct, radio_css ) ;
     }
-    else if ( filename.indexOf ( "config.html" ) >= 0 ) // Confige page is in PROGMEM
+    else if ( filename.indexOf ( "config.html" ) >= 0 ) // Config page is in PROGMEM
     {
       response = request->beginResponse_P ( 200, ct, config_html ) ;
     }
@@ -2277,14 +2279,13 @@ void handleFSf ( AsyncWebServerRequest* request, const String& filename )
     else
     {
       response = request->beginResponse ( SPIFFS, filename, ct ) ;
-      request->send ( response ) ;
     }
+    // Add extra headers
+    response->addHeader ( "Server", NAME ) ;
+    response->addHeader ( "Cache-Control", "max-age=3600" ) ;
+    response->addHeader ( "Last-Modified", VERSION ) ;
+    request->send ( response ) ;
   }
-  // Add extra headers
-  response->addHeader ( "Server", NAME ) ;
-  response->addHeader ( "Cache-Control", "max-age=3600" ) ;
-  response->addHeader ( "Last-Modified", VERSION ) ;
-  request->send ( response ) ;
   dbgprint ( "Response sent" ) ;
 }
 
