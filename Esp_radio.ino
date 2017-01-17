@@ -112,10 +112,10 @@
 // 31-12-2016, ES: Allow ContentType "text/css".
 // 02-01-2017, ES: Webinterface in PROGMEM.
 // 16-01-2017, ES: Correction playlists.
-// 17-01-2017, ES: Bugfix config page.
+// 17-01-2017, ES: Bugfix config page and playlist.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Tue, 17 Jan 2017 08:00:00 GMT"
+#define VERSION "Tue, 17 Jan 2017 09:10:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -2098,6 +2098,7 @@ void handlebyte ( uint8_t b, bool force )
       {
         dbgprint ( "Switch to PLAYLISTDATA" ) ;
         datamode = PLAYLISTDATA ;                      // Expecting data now
+        return ;
       }
     }
     else
@@ -2116,7 +2117,9 @@ void handlebyte ( uint8_t b, bool force )
     }
     else if ( b == '\n' )                              // Linefeed ?
     {
-      if ( metaline.length() == 0 )                    // Skip empty lines
+      dbgprint ( "Playlistdata: %s",                   // Show playlistheader
+                 metaline.c_str() ) ;
+      if ( metaline.length() < 5 )                     // Skip short lines
       {
         return ;
       }
@@ -2141,9 +2144,10 @@ void handlebyte ( uint8_t b, bool force )
       dbgprint ( "Entry %d in playlist found: %s", playlistcnt, metaline.c_str() ) ;
       if ( playlist_num == playlistcnt  )
       {
-        if ( metaline.startsWith ( "http://" ) )       // Does URL contain "http://"?
+        inx = metaline.indexOf ( "http://" ) ;         // Search for "http://"
+        if ( inx >= 0 )                                // Does URL contain "http://"?
         {
-          host = metaline.substring ( 7 ) ;            // Yes, remove it and set host
+          host = metaline.substring ( inx + 7 ) ;      // Yes, remove it and set host
         }
         else
         {
@@ -2464,6 +2468,7 @@ char* analyzeCmd ( const char* par, const char* val )
         ini_block.newpreset = ivalue ;                // Otherwise set station
       }
       dbgprint ( "Preset set to %d", ini_block.newpreset ) ;
+      playlist_num = 0 ;
     }
   }
   else if ( argument == "stop" )                      // Stop requested?
