@@ -104,7 +104,7 @@
 // 23-09-2016, ES: Added commands via MQTT and Serial input, Wifi set-up in AP mode.
 // 04-10-2016, ES: Configuration in .ini file. No more use of EEPROM and .pw files.
 // 11-10-2016, ES: Allow stations that have no bitrate in header like icecast.err.ee/raadio2.mp3.
-// 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0 
+// 14-10-2016, ES: Updated for async-mqtt-client-master 0.5.0
 // 22-10-2016, ES: Correction mute/unmute.
 // 15-11-2016, ES: Support for .m3u playlists.
 // 22-12-2016, ES: Support for localhost (play from SPIFFS).
@@ -115,7 +115,7 @@
 // 17-01-2017, ES: Bugfix config page and playlist.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Tue, 17 Jan 2017 09:10:00 GMT"
+#define VERSION "Tue, 23 Jan 2017 15:10:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -229,7 +229,8 @@ struct ini_struct
 enum datamode_t { INIT = 1, HEADER = 2, DATA = 4,
                   METADATA = 8, PLAYLISTINIT = 16,
                   PLAYLISTHEADER = 32, PLAYLISTDATA = 64,
-                  STOPREQD = 128, STOPPED = 256 } ;        // State for datastream
+                  STOPREQD = 128, STOPPED = 256
+                } ;        // State for datastream
 
 // Global variables
 int              DEBUG = 1 ;
@@ -847,10 +848,9 @@ void timer10sec()
                     PLAYLISTHEADER |
                     PLAYLISTDATA ) )
   {
-    if ( totalcount == oldtotalcount )
+    if ( totalcount == oldtotalcount )            // Still playing?
     {
-      // No data detected!
-      dbgprint ( "No data input" ) ;
+      dbgprint ( "No data input" ) ;              // No data detected!
       if ( morethanonce > 10 )                    // Happened too many times?
       {
         dbgprint ( "Going to restart..." ) ;
@@ -934,7 +934,7 @@ void testfile ( String fspec )
   dbgprint ( "Start test of file %s", fspec.c_str() ) ;
   t0 = millis() ;                                      // Timestamp at start
   t1 = t0 ;                                            // Prevent uninitialized value
-  told = t0 ;                                          // For report 
+  told = t0 ;                                          // For report
   path = String ( "/" ) + fspec ;                      // Form full path
   tfile = SPIFFS.open ( path, "r" ) ;                  // Open the file
   if ( tfile )
@@ -957,7 +957,7 @@ void testfile ( String fspec )
       {
         // Show results for debug
         dbgprint ( "Read %s, length %d/%d took %d seconds, %d slow reads",
-             fspec.c_str(), savlen - len, savlen, ( t1 - t0 ) / 1000, t_error ) ;
+                   fspec.c_str(), savlen - len, savlen, ( t1 - t0 ) / 1000, t_error ) ;
         told = t1 ;
       }
     }
@@ -1128,6 +1128,25 @@ void showstreamtitle ( const char *ml, bool full )
 
 
 //******************************************************************************************
+//                            S T O P _ M P 3 C L I E N T                                  *
+//******************************************************************************************
+// Disconnect from the server.                                                             *
+//******************************************************************************************
+void stop_mp3client ()
+{
+  while ( mp3client.connected() )
+  {
+    dbgprint ( "Stopping client" ) ;               // Stop connection to host
+    mp3client.flush() ;
+    mp3client.stop() ;
+    delay ( 500 ) ;
+  }
+  mp3client.flush() ;                              // Flush stream client
+  mp3client.stop() ;                               // Stop stream client
+}
+
+
+//******************************************************************************************
 //                            C O N N E C T T O H O S T                                    *
 //******************************************************************************************
 // Connect to the Internet radio server specified by newpreset.                            *
@@ -1140,6 +1159,7 @@ bool connecttohost()
   String      extension = "/" ;                     // May be like "/mp3" in "skonto.ls.lv:8002/mp3"
   String      hostwoext ;                           // Host without extension and portnumber
 
+  stop_mp3client() ;                                // Disconnect if still connected
   dbgprint ( "Connect to new host %s", host.c_str() ) ;
   displayinfo ( "   ** Internet radio **", 0, 20, WHITE ) ;
   datamode = INIT ;                                 // Start default in metamode
@@ -1198,14 +1218,14 @@ bool connecttofile()
 {
   String path ;                                           // Full file spec
   char*  p ;                                              // Pointer to filename
-  
+
   displayinfo ( "   **** MP3 Player ****", 0, 20, WHITE ) ;
   path = host.substring ( 9 ) ;                           // Path, skip the "localhost" part
   mp3file = SPIFFS.open ( path, "r" ) ;                   // Open the file
   if ( !mp3file )
   {
     dbgprint ( "Error opening file %s", path.c_str() ) ;  // No luck
-    return false ; 
+    return false ;
   }
   p = (char*)path.c_str() + 1 ;                           // Point to filename
   showstreamtitle ( p, true ) ;                           // Show the filename as title
@@ -1728,7 +1748,7 @@ void setup()
 void loop()
 {
   uint32_t    maxfilechunk  ;                           // Max number of bytes to read from
-                                                        // stream or file
+  // stream or file
 
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |              // Test op playing
@@ -1762,6 +1782,7 @@ void loop()
         yield() ;
       }
     }
+    yield() ;
   }
   while ( vs1053player.data_request() && ringavail() ) // Try to keep VS1053 filled
   {
@@ -1777,24 +1798,16 @@ void loop()
     }
     else
     {
-      while ( mp3client.connected() )
-      {
-        dbgprint ( "Stopping client" ) ;               // Stop connection to host
-        mp3client.flush() ;
-        mp3client.stop() ;
-        delay ( 500 ) ;
-      }
-      mp3client.flush() ;                              // Flush stream client
-      mp3client.stop() ;                               // Stop stream client
+      stop_mp3client() ;                               // Disconnect if still connected
     }
     handlebyte ( 0, true ) ;                           // Force flush of buffer
     vs1053player.setVolume ( 0 ) ;                     // Mute
     vs1053player.stopSong() ;                          // Stop playing
     emptyring() ;                                      // Empty the ringbuffer
     datamode = STOPPED ;                               // Yes, state becomes STOPPED
-    #if defined ( USETFT )
+#if defined ( USETFT )
     tft.fillRect ( 0, 0, 160, 128, BLACK ) ;           // Clear screen does not work when rotated
-    #endif
+#endif
     delay ( 500 ) ;
   }
   if ( localfile )
@@ -1818,9 +1831,8 @@ void loop()
     }
     else
     {
-      dbgprint ( "New preset/file requested" ) ;
       if ( playlist_num )                               // Playing from playlist?
-      {                                                 // Yes, retrieve URL of playlist
+      { // Yes, retrieve URL of playlist
         playlist_num += ini_block.newpreset -
                         currentpreset ;                 // Next entry in playlist
         ini_block.newpreset = currentpreset ;           // Stay at current preset
@@ -1829,6 +1841,8 @@ void loop()
       {
         host = readhostfrominifile(ini_block.newpreset) ; // Lookup preset in ini-file
       }
+      dbgprint ( "New preset/file requested (%d/%d) from %s",
+                 currentpreset, playlist_num, host.c_str() ) ;
       if ( host != ""  )                                // Preset in ini-file?
       {
         hostreq = true ;                                // Force this station as new preset
@@ -1928,7 +1942,7 @@ bool chkhdrline ( const char* str )
 // Handle the next byte of data from server.                                               *
 // This byte will be send to the VS1053 most of the time.                                  *
 // Note that the buffer the data chunk must start at an address that is a muttiple of 4.   *
-// Set force to true if chunkbuffer must be flushed.                                       * 
+// Set force to true if chunkbuffer must be flushed.                                       *
 //******************************************************************************************
 void handlebyte ( uint8_t b, bool force )
 {
@@ -2131,7 +2145,7 @@ void handlebyte ( uint8_t b, bool force )
           if ( inx > 0 )
           {
             // Show artist and title if present in metadata
-            showstreamtitle ( metaline.substring ( inx +1 ).c_str(), true ) ;
+            showstreamtitle ( metaline.substring ( inx + 1 ).c_str(), true ) ;
           }
         }
       }
@@ -2156,6 +2170,7 @@ void handlebyte ( uint8_t b, bool force )
         connecttohost() ;                              // Connect to it
       }
       metaline = "" ;
+      host = playlist ;                                // Back to the .m3u host
       playlistcnt++ ;                                  // Next entry in playlist
     }
     else
@@ -2475,7 +2490,7 @@ char* analyzeCmd ( const char* par, const char* val )
   {
     if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER | PLAYLISTDATA ) )
-   
+
     {
       datamode = STOPREQD ;                           // Request STOP
     }
@@ -2495,7 +2510,7 @@ char* analyzeCmd ( const char* par, const char* val )
   {
     if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER | PLAYLISTDATA ) )
-   
+
     {
       datamode = STOPREQD ;                           // Request STOP
     }
