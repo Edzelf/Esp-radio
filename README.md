@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 23-jan-2017: Correction playlists.
 - 16-jan-2017: Correction playlists.
 - 02-jan-2017: Webinterface in PROGMEM.
 - 28-dec-2016: Add support for resume after stop.
