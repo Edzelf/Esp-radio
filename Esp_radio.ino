@@ -113,9 +113,12 @@
 // 02-01-2017, ES: Webinterface in PROGMEM.
 // 16-01-2017, ES: Correction playlists.
 // 17-01-2017, ES: Bugfix config page and playlist.
+// 23-01-2017, ES: Bugfix playlist.
+// 26-01-2017, ES: Check on wrong icy-metaint.
+// 30-01-2017, ES: Allow chunked transfer encoding.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Tue, 23 Jan 2017 15:10:00 GMT"
+#define VERSION "Mon, 30 Jan 2017 16:15:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -191,6 +194,7 @@ extern "C"
 void   displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color ) ;
 void   showstreamtitle ( const char* ml, bool full = false ) ;
 void   handlebyte ( uint8_t b, bool force = false ) ;
+void   handlebyte_ch ( uint8_t b, bool force = false ) ;
 void   handleFS ( AsyncWebServerRequest* request ) ;
 void   handleFSf ( AsyncWebServerRequest* request, const String& filename ) ;
 void   handleCmd ( AsyncWebServerRequest* request )  ;
@@ -257,7 +261,7 @@ int8_t           currentpreset = -1 ;                      // Preset station pla
 String           host ;                                    // The URL to connect to or file to play
 String           playlist ;                                // The URL of the specified playlist
 bool             hostreq = false ;                         // Request for new host
-bool             reqtone = false ;                         // new tone setting requested
+bool             reqtone = false ;                         // New tone setting requested
 bool             muteflag = false ;                        // Mute output
 uint8_t*         ringbuf ;                                 // Ringbuffer for VS1053
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
@@ -276,7 +280,8 @@ uint16_t         mqttcount = 0 ;                           // Counter MAXMQTTCON
 int8_t           playlist_num = 0 ;                        // Nonzero for selection from playlist
 File             mp3file  ;                                // File containing mp3 on SPIFFS
 bool             localfile = false ;                       // Play from local mp3-file or not
-
+bool             chunked = false ;                         // Station provides chunked transfer
+int              chunkcount = 0 ;                          // Counter for chunked transfer
 //******************************************************************************************
 // End of global data section.                                                             *
 //******************************************************************************************
@@ -1163,6 +1168,7 @@ bool connecttohost()
   dbgprint ( "Connect to new host %s", host.c_str() ) ;
   displayinfo ( "   ** Internet radio **", 0, 20, WHITE ) ;
   datamode = INIT ;                                 // Start default in metamode
+  chunked = false ;                                 // Assume not chunked
   if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
   {
     playlist = host ;                               // Save copy of playlist URL
@@ -1232,6 +1238,7 @@ bool connecttofile()
   displayinfo ( "Playing from local file",
                 60, 68, YELLOW ) ;                        // Show Source at position 60
   icyname = "" ;                                          // No icy name yet
+  chunked = false ;                                       // File not chunked
   return true ;
 }
 
@@ -1786,7 +1793,7 @@ void loop()
   }
   while ( vs1053player.data_request() && ringavail() ) // Try to keep VS1053 filled
   {
-    handlebyte ( getring() ) ;                         // Yes, handle it
+    handlebyte_ch ( getring() ) ;                      // Yes, handle it
   }
   yield() ;
   if ( datamode == STOPREQD )                          // STOP requested?
@@ -1800,7 +1807,7 @@ void loop()
     {
       stop_mp3client() ;                               // Disconnect if still connected
     }
-    handlebyte ( 0, true ) ;                           // Force flush of buffer
+    handlebyte_ch ( 0, true ) ;                        // Force flush of buffer
     vs1053player.setVolume ( 0 ) ;                     // Mute
     vs1053player.stopSong() ;                          // Stop playing
     emptyring() ;                                      // Empty the ringbuffer
@@ -1869,10 +1876,7 @@ void loop()
     }
     else
     {
-      if ( connecttohost() )                            // Switch to new host
-      {
-        //datamode = INIT ;                             // datamode already set
-      }
+      connecttohost() ;                                 // Switch to new host
     }
   }
   if ( reqtone )                                        // Request to change tone?
@@ -1937,6 +1941,54 @@ bool chkhdrline ( const char* str )
 
 
 //******************************************************************************************
+//                           H A N D L E B Y T E _ C H                                     *
+//******************************************************************************************
+// Handle the next byte of data from server.                                               *
+// Chunked transfer encoding aware. Chunk extensions are not supported.                    *
+//******************************************************************************************
+void handlebyte_ch ( uint8_t b, bool force )
+{
+  static int  chunksize = 0 ;                         // Chunkcount read from stream
+
+  if ( chunked && !force && 
+       ( datamode & ( DATA |                          // Test op DATA handling
+                      METADATA |
+                      PLAYLISTDATA ) ) )
+  {
+    if ( chunkcount == 0 )                            // Expecting a new chunkcount?
+    {
+       if ( b == '\r' )                               // Skip CR
+       {
+         return ;      
+       }
+       else if ( b == '\n' )                          // LF ?
+       {
+         chunkcount = chunksize ;                     // Yes, set new count
+         chunksize = 0 ;                              // For next decode
+         return ;
+       }
+       // We have received a hexadecimal character.  Decode it and add to the result.
+       b = toupper ( b ) - '0' ;                      // Be sure we have uppercase
+       if ( b > 9 )
+       {
+         b = b - 7 ;                                  // Translate A..F to 10..15
+       }
+       chunksize = ( chunksize << 4 ) + b ;
+    }
+    else
+    {
+      handlebyte ( b, force ) ;                       // Normal data byte
+      chunkcount-- ;                                  // Update count to next chunksize block
+    }
+  }
+  else
+  {
+    handlebyte ( b, force ) ;                         // Normal handling of this byte
+  }
+}
+
+
+//******************************************************************************************
 //                           H A N D L E B Y T E                                           *
 //******************************************************************************************
 // Handle the next byte of data from server.                                               *
@@ -1950,7 +2002,7 @@ void handlebyte ( uint8_t b, bool force )
   static bool      firstmetabyte ;                     // True if first metabyte (counter)
   static int       LFcount ;                           // Detection of end of header
   static __attribute__((aligned(4))) uint8_t buf[32] ; // Buffer for chunk
-  static int       chunkcount = 0 ;                    // Data in chunk
+  static int       bufcnt = 0 ;                        // Data in chunk
   static bool      firstchunk = true ;                 // First chunk as input
   int              inx ;                               // Pointer in metaline
   int              i ;                                 // Loop control
@@ -1963,11 +2015,12 @@ void handlebyte ( uint8_t b, bool force )
     datamode = HEADER ;                                // Handle header
     totalcount = 0 ;                                   // Reset totalcount
     metaline = "" ;                                    // No metadata yet
+    firstchunk = true ;                                // First chunk expected
   }
   if ( datamode == DATA )                              // Handle next byte of MP3/Ogg data
   {
-    buf[chunkcount++] = b ;                            // Save byte in cunkbuffer
-    if ( chunkcount == sizeof(buf) || force )          // Buffer full?
+    buf[bufcnt++] = b ;                                // Save byte in chunkbuffer
+    if ( bufcnt == sizeof(buf) || force )              // Buffer full?
     {
       if ( firstchunk )
       {
@@ -1980,18 +2033,18 @@ void handlebyte ( uint8_t b, bool force )
                      buf[i + 4], buf[i + 5], buf[i + 6], buf[i + 7] ) ;
         }
       }
-      vs1053player.playChunk ( buf, chunkcount ) ;     // Yes, send to player
-      chunkcount = 0 ;                                 // Reset count
+      vs1053player.playChunk ( buf, bufcnt ) ;         // Yes, send to player
+      bufcnt = 0 ;                                     // Reset count
     }
     totalcount++ ;                                     // Count number of bytes, ignore overflow
-    if ( metaint != 0 )                                // No METADATA on Ogg streams
+    if ( metaint != 0 )                                // No METADATA on Ogg streams or mp3 files
     {
       if ( --datacount == 0 )                          // End of datablock?
       {
-        if ( chunkcount )                              // Yes, still data in buffer?
+        if ( bufcnt )                                  // Yes, still data in buffer?
         {
-          vs1053player.playChunk ( buf, chunkcount ) ; // Yes, send to player
-          chunkcount = 0 ;                             // Reset count
+          vs1053player.playChunk ( buf, bufcnt ) ;     // Yes, send to player
+          bufcnt = 0 ;                                 // Reset count
         }
         datamode = METADATA ;
         firstmetabyte = true ;                         // Expecting first metabyte (counter)
@@ -2032,6 +2085,15 @@ void handlebyte ( uint8_t b, bool force )
           displayinfo ( icyname.c_str(), 60, 68,
                         YELLOW ) ;                     // Show station name at position 60
         }
+        else if ( metaline.startsWith ( "Transfer-Encoding:" ) )
+        {
+          // Station provides chunked transfer
+          if ( metaline.endsWith ( "chunked" ) )
+          {
+            chunked = true ;                           // Remember chunked transfer mode
+            chunkcount = 0 ;                           // Expect chunkcount in DATA
+          }
+        }
       }
       metaline = "" ;                                  // Reset this line
       if ( LFcount == 2 )
@@ -2040,7 +2102,7 @@ void handlebyte ( uint8_t b, bool force )
                    bitrate ) ;
         datamode = DATA ;                              // Expecting data now
         datacount = metaint ;                          // Number of bytes before first metadata
-        chunkcount = 0 ;                               // Reset chunkcount
+        bufcnt = 0 ;                                   // Reset buffer count
         vs1053player.startSong() ;                     // Start a new song
       }
     }
@@ -2051,7 +2113,7 @@ void handlebyte ( uint8_t b, bool force )
     }
     return ;
   }
-  if ( datamode == METADATA )                          // Handle next bye of metadata
+  if ( datamode == METADATA )                          // Handle next byte of metadata
   {
     if ( firstmetabyte )                               // First byte of metadata?
     {
@@ -2079,8 +2141,14 @@ void handlebyte ( uint8_t b, bool force )
         // Isolate the StreamTitle, remove leading and trailing quotes if present.
         showstreamtitle ( metaline.c_str() ) ;         // Show artist and title if present in metadata
       }
+      if ( metaline.length() > 1500 )                  // Unlikely metaline length?
+      {
+        dbgprint ( "Metadata block too long! Skipping all Metadata from now on." ) ;
+        metaint = 0 ;                                  // Probably no metadata
+        metaline = "" ;                                // Do not waste memory on this
+      }
       datacount = metaint ;                            // Reset data count
-      chunkcount = 0 ;                                 // Reset chunkcount
+      bufcnt = 0 ;                                     // Reset buffer count
       datamode = DATA ;                                // Expecting data
     }
   }
