@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 30-jan-2017: Allow chunked transfer encoding of streams.
 - 23-jan-2017: Correction playlists.
 - 16-jan-2017: Correction playlists.
 - 02-jan-2017: Webinterface in PROGMEM.
