@@ -116,9 +116,10 @@
 // 23-01-2017, ES: Bugfix playlist.
 // 26-01-2017, ES: Check on wrong icy-metaint.
 // 30-01-2017, ES: Allow chunked transfer encoding.
+// 01-02-2017, ES: Bugfix file upload.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Mon, 30 Jan 2017 16:15:00 GMT"
+#define VERSION "Mon, 01 Feb 2017 14:15:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -967,6 +968,7 @@ void testfile ( String fspec )
       }
     }
     tfile.close() ;
+    dbgprint ( "EOF" ) ;                               // End of file
   }
 }
 
@@ -2292,23 +2294,17 @@ void handleFileUpload ( AsyncWebServerRequest *request, String filename,
     path = String ( "/" ) + filename ;                // Form SPIFFS filename
     SPIFFS.remove ( path ) ;                          // Remove old file
     f = SPIFFS.open ( path, "w" ) ;                   // Create new file
-    t = 0 ;                                           // Force first print
+    t = millis() ;                                    // Start time
     totallength = 0 ;                                 // Total file lengt still zero
     lastindex = 0 ;                                   // Prepare test
   }
   t1 = millis() ;                                     // Current timestamp
-  if ( ( ( t1 - t ) > 1000 ) ||                       // One second passed?
-       final ||                                       // or final chunk?
-       ( len != 1460 ) )                              // or strange length
-  {
-    // Yes, print progress
-    dbgprint ( "File upload %s, len %d, index %d",
-               filename.c_str(), len, index ) ;
-    t = t1 ;
-  }
+  // Yes, print progress
+  dbgprint ( "File upload %s, t = %d msec, len %d, index %d",
+               filename.c_str(), t1 - t, len, index ) ;
   if ( len )                                          // Something to write?
   {
-    if ( index != lastindex )                         // New chunk?
+    if ( ( index != lastindex ) || ( index == 0 ) )   // New chunk?
     {
       f.write ( data, len ) ;                         // Yes, transfer to SPIFFS
       totallength += len ;                            // Update stored length
@@ -2337,7 +2333,7 @@ void handleFSf ( AsyncWebServerRequest* request, const String& filename )
 
   dbgprint ( "FileRequest received %s", filename.c_str() ) ;
   ct = getContentType ( filename ) ;                    // Get content type
-  if ( ct == "" )                                       // Empty is illegal
+  if ( ( ct == "" ) || ( filename == "" ) )             // Empty is illegal
   {
     request->send ( 404, "text/plain", "File not found" ) ;
   }
