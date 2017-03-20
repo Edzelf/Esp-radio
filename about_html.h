@@ -23,8 +23,8 @@ const char about_html[] PROGMEM = R"=====(
 	This project is documented at <a target="blank" href="https://github.com/Edzelf/Esp-radio">Github</a>.</p>
 	<p>Author: Ed Smallenburg<br>
 	Webinterface design: <a target="blank" href="http://www.sanderjochems.nl/">Sander Jochems</a><br>
-	App (Android): <a target="blank" href="http://www.sanderjochems.nl/projects/2">Sander Jochems</a><br>
-	Date: 02 Jan 2017</p>
+	App (Android): <a target="blank" href="https://play.google.com/store/apps/details?id=com.thunkable.android.sander542jochems.ESP_Radio">Sander Jochems</a><br>
+	Date: January 2017</p>
   <script type="text/javascript">
     var stylesheet = document.createElement('link') ;
     stylesheet.href = 'radio.css' ;
