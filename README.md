@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 26-feb-2017: Better output webinterface on preset change.
 - 01-feb-2017: Bugfix uploading files.
 - 30-jan-2017: Allow chunked transfer encoding of streams.
 - 23-jan-2017: Correction playlists.
