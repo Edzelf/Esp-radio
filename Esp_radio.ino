@@ -117,9 +117,10 @@
 // 26-01-2017, ES: Check on wrong icy-metaint.
 // 30-01-2017, ES: Allow chunked transfer encoding.
 // 01-02-2017, ES: Bugfix file upload.
+// 26-04-2017, ES: Better output webinterface on preset change.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Mon, 01 Feb 2017 14:15:00 GMT"
+#define VERSION "Wed, 26 Apr 2017 08:45:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -163,7 +164,7 @@ extern "C"
 #define CYAN    GREEN | BLUE
 #define MAGENTA RED | BLUE
 #define YELLOW  RED | GREEN
-#define WHITE   0xFFFF
+#define WHITE   BLUE | RED | GREEN
 // Digital I/O used
 // Pins for VS1053 module
 #define VS1053_CS     5
@@ -966,6 +967,11 @@ void testfile ( String fspec )
                    fspec.c_str(), savlen - len, savlen, ( t1 - t0 ) / 1000, t_error ) ;
         told = t1 ;
       }
+      if ( ( t1 - t0 ) > 100000 )                      // Give up after 100 seconds
+      {
+        dbgprint ( "Give up..." ) ;
+        break ;
+      }
     }
     tfile.close() ;
     dbgprint ( "EOF" ) ;                               // End of file
@@ -1735,9 +1741,6 @@ void setup()
     }
   }
   delay ( 1000 ) ;                                     // Show IP for a wile
-  ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
-  ArduinoOTA.onStart ( otastart ) ;
-  ArduinoOTA.begin() ;                                 // Allow update over the air
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
 }
 
@@ -2544,9 +2547,10 @@ char* analyzeCmd ( const char* par, const char* val )
       }
       else
       {
-        ini_block.newpreset = ivalue ;                // Otherwise set station
+        ini_block.newpreset = ivalue ;                // Otherwise set preset station
       }
-      dbgprint ( "Preset set to %d", ini_block.newpreset ) ;
+      sprintf ( reply, "Preset is now %d",            // Reply new preset
+                ini_block.newpreset ) ;
       playlist_num = 0 ;
     }
   }
