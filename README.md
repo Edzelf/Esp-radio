@@ -8,7 +8,7 @@ MP3 stream and a 1.8 TFT color display to give some information about the radio 
 
 ## Change Log
 
-[CHANGELOG.md](https://github.com)
+[CHANGELOG.md](CHANGELOG.md)
 
 ## Features
 * Can connect to thousands of Internet radio stations that broadcast MP3 or OGG audio streams.
