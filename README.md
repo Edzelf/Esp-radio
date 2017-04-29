@@ -58,12 +58,12 @@ In order to work properly, the software needs some configuration.
 The filesystem (SPIFFS, set to 3 MB) of the ESP8266 must contain the files necessary for the webserver and a
 configuration file. The plug-in for Data Upload must be present in your Arduino IDE.
 
-![alt text](https://raw.githubusercontent.com/NonaSuomy/Esp-radio/blob/master/docs/images/000.png)
+![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/000.png)
 
 If you don’t see this feature, check the installation guide at the end of this document.
 At least the file “radio.ini” must be present in a map “data” in the Arduino project map.
 
-![alt text](https://raw.githubusercontent.com/NonaSuomyEsp-radio/blob/master/docs/images/000.png)
+![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/000.png)
 
 The 2 extra files in the above figure can be played directly from SPIFFS. The webinterface allows upload of additional
 files or updates to existing files (although it seems pretty unreliable).
