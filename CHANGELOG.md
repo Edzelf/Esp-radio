@@ -1,5 +1,5 @@
 # ChangeLog
-
+```
 26-feb-2017: Better output webinterface on preset change.
 01-feb-2017: Bugfix uploading files.
 30-jan-2017: Allow chunked transfer encoding of streams.
@@ -23,3 +23,4 @@
 06-may-2016: Added hidden SSID, added feature to web page.
 04-may-2016, Allow stations like "skonto.ls.lv:8002/mp3".
 03-may-2016, Add bass/treble settings (see also new index.html).
+```
