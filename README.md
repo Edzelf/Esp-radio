@@ -316,11 +316,11 @@ reset                                     Restart the ESP8266.
 analog                                    Show current analog input.
 ```
 
-**Note:** *Commands marked with "*)" *are sensible in ini-file only.*
+**Note:** *Commands marked with " *)" *are sensible in ini-file only.*
 
-Station may also be of the form “skonto.ls.lv:8002/mp3”. The default port is 80.
-Station may also point to an mp3 playlist. Example: “www.rockantenne.de/webradio/rockantenne.m3u”.
-Station may also point to a local .mp3-file on SPIFFS. Example: “localhost/friendly.mp3”. Note that there is only
+Station may also be of the form "skonto.ls.lv:8002/mp3". The default port is 80.
+Station may also point to an mp3 playlist. Example: "www.rockantenne.de/webradio/rockantenne.m3u".
+Station may also point to a local .mp3-file on SPIFFS. Example: "localhost/friendly.mp3". Note that there is only
 limited space to store .mp3-files on SPIFFS.
 
 It is allowed to have multiple (max 100) "preset_" lines. The number after the "_" will be used as the preset number.
@@ -335,9 +335,9 @@ SPIFFS. The available Wifi networks are listed as well. The config screen will b
 cannot connect to one of the WiFi stations specified in the ini-file.
 
 In that case the ESP8266 will act as an accesspoint with the name "Esp-radio". You have to connect to this AP with
-password "Esp-radio". Than the ESP-radio can be reached at http:// 192.168.4.1.
+password "Esp-radio". Than the ESP-radio can be reached at http://192.168.4.1.
 
-After changing the contents of the ini-file, it must be saved to the SPIFFS by clicking the “Save” button. Changes will
+After changing the contents of the ini-file, it must be saved to the SPIFFS by clicking the "Save" button. Changes will
 have effect on the next restart of the ESP-radio, so click the “Restart” button.
 
 ![alt text](docs/images/014.png)
@@ -379,7 +379,7 @@ mqttpubtopic  = espradioIP           # IP will be published here
 #
 ```
 
-In this example I published the command “uppreset=1” to the radio. The radio published the IP-adress
+In this example I published the command "uppreset=1" to the radio. The radio published the IP address
 192.168.12.23 to the broker (once every 10 minutes).
 
 ## Arduino IDE Installation For ESP-Radio
@@ -391,18 +391,18 @@ https://www.arduino.cc/download_handler.php?f=/arduino-1.6.8-windows.exe and sta
 Board Manager URLs field. You can add multiple URLs, separating them with commas.
 * Open Boards Manager from Tools > Board menu and install esp8266 platform (and don't forget to
 select your ESP8266 board from Tools > Board menu after installation).
-* Download “Async TCP Library for ESP8266 Arduino” from https://github.com/me-nodev/ESPAsyncTCP
+* Download "Async TCP Library for ESP8266 Arduino" from https://github.com/me-nodev/ESPAsyncTCP
 and install in the IDE (add .zip library).
-* Download “Async Web Server for ESP8266 Arduino” from https://github.com/me-nodev/ESPAsyncWebServer
+* Download "Async Web Server for ESP8266 Arduino" from https://github.com/me-nodev/ESPAsyncWebServer
 and install in the IDE (add .zip library).
-* Download “TFT_ILI9163C library” from https://github.com/sumotoy/TFT_ILI9163C and install in
-the IDE (add .zip library). There is a bug in this library: a part of the display is missing when the
-display is used in “landscape”-mode (mode “3”). See next paragraph for the patch.
-* Download library for “AsyncMqttClient” version 0.5.0 from https://github.com/marvinroger/asyncmqtt-client
+* Download "TFT_ILI9163C library" from https://github.com/sumotoy/TFT_ILI9163C and install in
+the IDE (add .zip library). There is a bug in this library: A part of the display is missing when the
+display is used in "landscape"-mode (mode "3"). See next paragraph for the patch.
+* Download library for "AsyncMqttClient" version 0.5.0 from https://github.com/marvinroger/asyncmqtt-client
 and install in the IDE.
 * Install Adafruit GFX library in the IDE (library manager).
 * Load the sketch. You should be able to compile it.
-* Install Python 2.7 for Windows. Select option “Add python.exe to Path”.
+* Install Python 2.7 for Windows. Select option "Add python.exe to Path".
 * Download the tool: https://github.com/esp8266/arduino-esp8266fsplugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
 and unpack it in your Arduino sketchbook directory,
 create tools directory if it doesn't exist yet. The path will look like
@@ -413,9 +413,7 @@ create tools directory if it doesn't exist yet. The path will look like
 ## TFT Library Patches
 
 The display is used in mode "3". The TFT-library has a bug for this mode. Height and width are reversed here.
-To correct it, find the source code TFT_ILI9163C.cpp on your computer (mine is at "documents/Arduino/libraries/
-
-TFT_ILI9163C-master”) and change the 2 lines 1096 and 1097 to:
+To correct it, find the source code TFT_ILI9163C.cpp on your computer (mine is at "documents/Arduino/libraries/TFT_ILI9163C-master") and change the 2 lines 1096 and 1097 to:
 
 ```
 _width = _TFTHEIGHT;//-__OFFSET;
