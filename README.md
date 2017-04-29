@@ -36,7 +36,7 @@ MP3 stream and a 1.8 TFT color display to give some information about the radio 
 ## Software
 
 The software for the radio is supplied as an Arduino sketch that can be compiled for the ESP8266 using the Arduino
-IDE version 1.6.8, esp8266 software 2.2.0. No Arduino is required in this project.
+IDE version 1.6.8, ESP8266 software 2.2.0. No Arduino is required in this project.
 
 ### Libraries Used
 
@@ -382,7 +382,7 @@ mqttpubtopic  = espradioIP           # IP will be published here
 In this example I published the command “uppreset=1” to the radio. The radio published the IP-adress
 192.168.12.23 to the broker (once every 10 minutes).
 
-## Arduino IDE Installation For Esp-radio
+## Arduino IDE Installation For ESP-Radio
 
 * Download Windows installer for Arduino version 1.6.8 from
 https://www.arduino.cc/download_handler.php?f=/arduino-1.6.8-windows.exe and start the installation.
