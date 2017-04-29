@@ -58,12 +58,12 @@ In order to work properly, the software needs some configuration.
 The filesystem (SPIFFS, set to 3 MB) of the ESP8266 must contain the files necessary for the webserver and a
 configuration file. The plug-in for Data Upload must be present in your Arduino IDE.
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/000.png)
+![alt text](docs/images/000.png)
 
 If you don’t see this feature, check the installation guide at the end of this document.
 At least the file “radio.ini” must be present in a map “data” in the Arduino project map.
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/001.png)
+![alt text](docs/images/001.png)
 
 The 2 extra files in the above figure can be played directly from SPIFFS. The webinterface allows upload of additional
 files or updates to existing files (although it seems pretty unreliable).
@@ -125,7 +125,7 @@ that there might be problems with long ini-files due to write problems in SPIFFS
 
 ### Using Winamp to find out the correct preset line for a station.
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/003.png)
+![alt text](docs/images/003.png)
 
 Press Alt-3 in the main window (left picture). You will see info for the playing station (right picture).
 The top line (with "http") will contain the information for the preset.
@@ -144,7 +144,7 @@ The analog input can be used to control the radio by connecting the analog input
 
 #### Circuit
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/004.png)
+![alt text](docs/images/004.png)
 
 The voltage of the analog input may differ depending on the ESP8266
 module used (nodeMCU or standalone). Therefore the definitions of asw1,
@@ -178,9 +178,9 @@ ESP8266 to work. See figure 1. The ESP8266 is running on 160 MHz.
 * A Class D stereo amplifier to drive the speakers. Best quality if powered by a separate power source.
 * A 3.3 volt LDO to provide power for the ESP8266.
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/005.png)
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/006.png)
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/007.png)
+![alt text](docs/images/005.png)
+![alt text](docs/images/006.png)
+![alt text](docs/images/007.png)
 
 The radio is powered by a 5V adapter. The radio will function on single LiPo cell as well, so I used a small charge
 circuit powered by the 5V input. The amplifier uses a separate LiPo cell to minimize noise caused by the ESP8266.
@@ -190,18 +190,18 @@ used.
 I used a small perforated board to connect the ESP8266 and the TFT and to mount it in a small speaker box. The TFT
 is visible through a hole in the front of the box:
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/008.png)
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/009.png)
+![alt text](docs/images/008.png)
+![alt text](docs/images/009.png)
 
 Most of the wiring is done on the green perfboard. The TFT is visible The VS1053 is connected by the grey cable:
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/010.png)
+![alt text](docs/images/010.png)
 
 The Class D stereo amplifier is not shown in this picture. My version uses mono playback.
 
 ## Schematic Diagram
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/011.png)
+![alt text](docs/images/011.png)
 
 ## Wiring
 
@@ -246,7 +246,7 @@ charger. S1a, S1b and S1c is a triple On-On switch.
 
 **Note:** *There may be high currents in the “off”-position if Batt 1 is fully discharged. Use protected batteries only!*
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/012.png)
+![alt text](docs/images/012.png)
 
 ## Web Interface
 
@@ -265,7 +265,7 @@ If your computer is configured for mDNS, you can also use http://esp-radio.local
 
 The following simple web interface will be displayed:
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/013.png)
+![alt text](docs/images/013.png)
 
 Clicking on one of the available buttons will control the Esp-radio. The reply of the webserver will be visible in the
 status box below the buttons. A click will be translated into a command to the Esp-radio in the form:
@@ -340,7 +340,7 @@ password "Esp-radio". Than the ESP-radio can be reached at http:// 192.168.4.1.
 After changing the contents of the ini-file, it must be saved to the SPIFFS by clicking the “Save” button. Changes will
 have effect on the next restart of the ESP-radio, so click the “Restart” button.
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/014.png)
+![alt text](docs/images/014.png)
 
 ## MQTT Interface
 
@@ -358,7 +358,7 @@ Remove the lines starting with "mqtt" if no MQTT is required.
 
 You can use an MQTT online client like http://www.hivemq.com/demos/websocket-client/
 
-![alt text](https://github.com/NonaSuomy/Esp-radio/blob/master/docs/images/015.png)
+![alt text](docs/images/015.png)
 
 Subscribe to "espradioIP" and you will see the IP-address of your radio. You will see the IP address of your radio or
 the IP address of a different user. So be sure to use unique names for your topics.
