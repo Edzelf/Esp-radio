@@ -118,9 +118,10 @@
 // 30-01-2017, ES: Allow chunked transfer encoding.
 // 01-02-2017, ES: Bugfix file upload.
 // 26-04-2017, ES: Better output webinterface on preset change.
+// 03-05-2017, ES: Prevent to start inputstream if no network.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 26 Apr 2017 08:45:00 GMT"
+#define VERSION "Wed, 03 May 2017 10:45:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -1706,6 +1707,7 @@ void setup()
   tckr.attach ( 0.100, timer100 ) ;                    // Every 100 msec
   dbgprint ( "Selected network: %-25s", ini_block.ssid.c_str() ) ;
   NetworkFound = connectwifi() ;                       // Connect to WiFi network
+  //NetworkFound = false ;                             // TEST, uncomment for no network test
   dbgprint ( "Start server for commands" ) ;
   cmdserver.on ( "/", handleCmd ) ;                    // Handle startpage
   cmdserver.onNotFound ( handleFS ) ;                  // Handle file from FS
@@ -1739,6 +1741,10 @@ void setup()
                  ini_block.mqttpasswd.c_str() ) ;
       mqttclient.connect();
     }
+  }
+  else
+  {
+    currentpreset = ini_block.newpreset ;              // No network: do not start radio
   }
   delay ( 1000 ) ;                                     // Show IP for a wile
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
