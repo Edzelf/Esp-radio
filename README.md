@@ -27,6 +27,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 03-may-2017: Prevent to start inputstream if no network.
 - 26-feb-2017: Better output webinterface on preset change.
 - 01-feb-2017: Bugfix uploading files.
 - 30-jan-2017: Allow chunked transfer encoding of streams.
