@@ -32,6 +32,7 @@ MP3 stream and a 1.8 TFT color display to give some information about the radio 
 * Saves volume and preset station over restart.
 * Bass and treble control.
 * Configuration also possible if no WiFi connection can be established.
+* Plays iHeartRadio streams.
 
 ## Software
 
@@ -40,14 +41,16 @@ IDE version 1.6.8, ESP8266 software 2.2.0. No Arduino is required in this projec
 
 ### Libraries Used
 
-* ESP8266WiFi – for establishing the communication with WiFI
-* SPI – for communication with VS1053 and TFT display
-* Adafruit_GFX – for writing info on the TFT screen (if configurated)
-* TFT_ILI9163C – driver for the TFT screen (if configurated)
-* ESPAsyncWebServer – for remote controlling the radio via http.
-* ESPAsyncTCP – Needed for webserver.
-* ArduinoOTA for software update over WiFi.
-* AsyncMqttClient to handle incoming MQTT messages.
+* ESP8266WiFi		Establishing the communication with WiFI	Part of ESP8266 Arduino default libraries.
+* SPI			Communication with VS1053 and TFT display	Part of Arduino default libraries.
+* Adafruit_GFX		Write info on the TFT screen (if configurated)	https://github.com/adafruit/Adafruit-GFX-Library
+* TFT_ILI9163C		Driver for the TFT screen (if configurated)	https://github.com/sumotoy/TFT_ILI9163C
+* ESPAsyncWebServer	Remote controlling the radio via http.		https://github.com/me-no-dev/ESPAsyncTCP
+* ESPAsyncTCP		Needed for webserver.				https://github.com/me-no-dev/ESPAsyncWebServer
+* ESP8266FS		Manage SPIFFS uploads (radio.ini)		https://github.com/esp8266/arduino-esp8266fs-plugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
+* ArduinoOTA		Software update over WiFi.			Part of ESP8266 Arduino default libraries.
+* AsyncMqttClient	Handle incoming MQTT messages.			https://github.com/marvinroger/async-mqtt-client
+* TinyXML		Decoding the iHeartRadio xml.			Adafruit fork https://github.com/adafruit/TinyXML
 
 The map with the ESP-Radio sketch must also contain the supplied headerfiles "index_html.h", "favicon_ico.h",
 "radio_css.h", "config_html.h" and "about_html.h". These files are included for the webinterface in PROGMEM.
@@ -112,6 +115,10 @@ preset_06 = icecast.omroep.nl:80/radio1-bb-mp3       # 6 - Radio 1, NL
 preset_07 = 205.164.62.15:10032                      # 7 - 1.FM - GAIA, 64k
 preset_08 = skonto.ls.lv:8002/mp3                    # 8 - Skonto 128k
 preset_09 = 94.23.66.155:8106                        # 9 - *ILR CHILL and GROOVE
+preset_10 = ihr/IHR_IEDM 			     # 10 - iHeartRadio Evolution All Things Dance
+preset_11 = ihr/IHR_TRAN 			     # 11 - iHeartRadio Trancid Non-StopTrance and Progressive
+preset_12 = ihr/CKMXAM				     # 12 - Funny 1060AM
+preset_13 = ihr/CIMXFM				     # 13 - 88.7 89X The New Rock Alternative
 # End of file
 ```
 
@@ -122,6 +129,10 @@ again. URLs with mp3 files or mp3 playlists (.m3u) are allowed.
 
 The .ini-file itself can be edited in the webinterface. Changes will be effective after restart of the Esp-radio. Note
 that there might be problems with long ini-files due to write problems in SPIFFS.
+
+**Note:** Presets starting with "ihr/" are iHeartRadio stations. Use station callsign XXXXFM or XXXXAM or IHR_XXXX. 
+      iHeartRadio station example for https://en.wikipedia.org/wiki/CKMX Funny 1060AM you would 
+      put ihr/CKMXAM CKMX being the callsign of the radio station.
 
 ### Using Winamp to find out the correct preset line for a station.
 
@@ -298,6 +309,8 @@ tonelf       = <0..15>                    Setting treble frequency.
 station      = <mp3 stream>               Select new station (will not be saved).
 station      = <URL>.mp3                  Play standalone .mp3 file (not saved).
 station      = <URL>.m3u                  Select playlist (will not be saved).
+xml          = <MountPoint> 		  Select iHeartRadio station (not saved)
+               				  <MountPoint> should be like this: IHR_TRAN or CKMXAM, xxxxFM, xxxxAM, etc.     
 mute                                      Mute the music.
 unmute                                    Unmute the music.
 stop                                      Stop player.
@@ -327,6 +340,10 @@ It is allowed to have multiple (max 100) "preset_" lines. The number after the "
 The comment part (after the "#") will be shown in the webinterface.
 
 It is also allowed to have multiple "wifi_" lines. The strongest Wifi accesspoint will be used.
+
+**Note:** xml is for iHeartRadio stations. Use station callsign XXXXFM or XXXXAM or IHR_XXXX. 
+      iHeartRadio station example for https://en.wikipedia.org/wiki/CKMX Funny 1060AM you would 
+      put ihr/CKMXAM CKMX being the callsign of the radio station. http://192.168.2.13/?xml=CKMXAM
 
 ## Configuration
 
@@ -401,6 +418,7 @@ display is used in "landscape"-mode (mode "3"). See next paragraph for the patch
 * Download library for "AsyncMqttClient" version 0.5.0 from https://github.com/marvinroger/asyncmqtt-client
 and install in the IDE.
 * Install Adafruit GFX library in the IDE (library manager).
+* Download library for "TinyXML" from Adafruit fork https://github.com/adafruit/TinyXML
 * Load the sketch. You should be able to compile it.
 * Install Python 2.7 for Windows. Select option "Add python.exe to Path".
 * Download the tool: https://github.com/esp8266/arduino-esp8266fsplugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
@@ -428,35 +446,31 @@ configuration for the "blue 1.8 SPI 128x160 board" in the TFT_ILI9163C-master.zi
 This is an example of the debug output.
 
 ```
-D: FS Total 2949250, used 1492
-D: /radio.ini - 1492
+D: FS Total 2949250, used 2145297
+D: /radio.ini - 1780
+D: /friendly.mp3 - 281941
+D: /kontiki.mp3 - 1843200
 D: Added SSID 00 = NETGEAR-11 to acceptable networks
 D: Added SSID 01 = ADSL-11 to acceptable networks
 D: * Scan Networks *
-D: Number of available networks: 7
-D: 1 - Ziggo0A484 Signal: -82 dBm Encryption WPA2
-D: 2 - Ziggo Signal: -82 dBm Encryption ????
-D: 3 - Onbekende Signal: -78 dBm Encryption None
-D: 4 - ADSL-11 Signal: -78 dBm Encryption Auto Acceptable
-D: 5 - Roulet7 Signal: -87 dBm Encryption Auto
-D: 6 - Roulet7-gast Signal: -85 dBm Encryption Auto
-D: 7 - NETGEAR-11 Signal: -60 dBm Encryption WPA2 Acceptable
+D: Number of available networks: 8
+D: 1 - HZN240825082 Signal: -73 dBm Encryption WPA2
+D: 2 - Private_FON Signal: -56 dBm Encryption WPA
+D: 3 - FON_Roulet_11 Signal: -56 dBm Encryption None
+D: 4 - ADSL-11 Signal: -86 dBm Encryption Auto Acceptable
+D: 5 - Roulet 9 Gast Signal: -88 dBm Encryption Auto
+D: 6 - Roulet 9 Signal: -87 dBm Encryption Auto
+D: 7 - NETGEAR-11 Signal: -58 dBm Encryption WPA2 Acceptable
+D: 8 - TWEED Signal: -86 dBm Encryption WPA2
 D: --------------------------------------
-D: Command: mqttbroker with parameter broker.hivemq.com
-D: Command: mqttport with parameter 1883
-D: Command: mqttuser with parameter none
-D: Command: mqttpasswd with parameter none
-D: Command: mqtttopic with parameter P_espradio
-D: Command: mqttpubtopic with parameter P_espradioIP
-D: Command: wifi_00 with parameter NETGEAR-11/DEADC0DE11
-D: Command: wifi_01 with parameter ADSL-11/DEADC0DE11
+D: Command: wifi_00 with parameter NETGEAR-11/XXXXXXXX
+D: Command: wifi_01 with parameter ADSL-11/YYYYYYY
 D: Command: volume with parameter 72
 D: Command: toneha with parameter 0
 D: Command: tonehf with parameter 0
 D: Command: tonela with parameter 0
 D: Command: tonelf with parameter 0
 D: Command: preset with parameter 6
-D: Preset set to 6
 D: Command: preset_00 with parameter 109.206.96.34:8100
 D: Command: preset_01 with parameter airspectrum.cdnstream1.com:8114/1648_128
 D: Command: preset_02 with parameter us2.internet-radio.com:8050
@@ -467,8 +481,12 @@ D: Command: preset_06 with parameter icecast.omroep.nl:80/radio1-bb-mp3
 D: Command: preset_07 with parameter 205.164.62.15:10032
 D: Command: preset_08 with parameter skonto.ls.lv:8002/mp3
 D: Command: preset_09 with parameter 94.23.66.155:8106
-D: Starting ESP Version 02-jan-2017... Free memory 14376
-D: Sketch size 344656, free size 700416
+D: Command: preset_10 with parameter ihr/IHR_IEDM
+D: Command: preset_11 with parameter ihr/IHR_TRAN
+D: Command: preset_12 with parameter ihr/WQTR
+D: Command: preset_13 with parameter ihr/CKMXAM
+D: Starting ESP Version Wed, 04 May 2017 10:00:00 GMT... Free memory 12448
+D: Sketch size 349760, free size 696320
 D: Reset VS1053...
 D: End reset VS1053...
 D: Slow SPI,Testing VS1053 read/write registers...
@@ -476,12 +494,11 @@ D: Fast SPI, Testing VS1053 read/write registers again...
 D: endFillByte is 0
 D: Selected network: NETGEAR-11
 D: Try WiFi NETGEAR-11
-D: IP = 192.168.2.6
+D: IP = 192.168.2.9
 D: Start server for commands
-D: Connecting to MQTT broker.hivemq.com, port 1883, user none, password none...
 D: STOP requested
 D: Song stopped correctly after 0 msec
-D: New preset/file requested
+D: New preset/file requested (-1/0) from icecast.omroep.nl:80/radio1-bb-mp3
 D: Connect to new host icecast.omroep.nl:80/radio1-bb-mp3
 D: Connect to icecast.omroep.nl on port 80, extension /radio1-bb-mp3
 D: Connected to server
@@ -500,104 +517,11 @@ D: icy-url:http://www.radio1.nl
 D: icy-metaint:16000
 D: Switch to DATA, bitrate is 192
 D: First chunk:
-D: 3C 3C FE 64 11 10 33 82
-D: 0D D1 A2 04 C5 64 D0 5D
-D: 41 D6 BB 00 99 5D B6 9C
-D: AC 49 06 54 35 3A 49 1E
+D: CB 72 91 06 24 03 FA EF
+D: BB AF 1B 74 53 6F 86 9E
+D: A6 95 48 DB 1B C1 0A 23
+D: 88 08 93 30 C4 80 E4 2A
 D: Metadata block 64 bytes
 D: Streamtitle found, 50 bytes
 D: StreamTitle='NPO Radio 1 - De Ochtend - KRO-NCRV';
-D: /favicon.ico - 766
-D: /index.html - 6821
-D: /kontiki.mp3 - 1843200
-D: /radio.ini - 1702
-D: /config.html - 3885
-D: /friendly.mp3 - 281941
-D: Added SSID 00 = NGEAR-11 to acceptable networks
-D: Added SSID 01 = ADSL-11 to acceptable networks
-D: * Scan Networks *
-D: Number of available networks: 5
-D: 1 - Ziggo0A484 Signal: -75 dBm Encryption WPA2
-D: 2 - Ziggo Signal: -77 dBm Encryption ????
-D: 3 - Onbekende Signal: -71 dBm Encryption None
-D: 4 - ADSL-11 Signal: -77 dBm Encryption Auto Acceptable
-D: 5 - NETGEAR-11 Signal: -66 dBm Encryption WPA2 Acceptable
-D: --------------------------------------
-D: Command: mqttbroker with parameter broker.hivemq.com
-D: Command: mqttport with parameter 1883
-D: Command: mqttuser with parameter none
-D: Command: mqttpasswd with parameter none
-D: Command: mqtttopic with parameter espradio
-D: Command: mqttpubtopic with parameter espradioIP
-D: Command: wifi_00 with parameter NETGEAR-11/DEADC0DE11
-D: Command: wifi_01 with parameter ADSL-11/DEADC0DE11
-D: Command: volume with parameter 72
-D: Command: toneha with parameter 0
-D: Command: tonehf with parameter 0
-D: Command: tonela with parameter 0
-D: Command: tonelf with parameter 0
-D: Command: preset with parameter 6
-D: Preset set to 6
-D: Command: preset_00 with parameter 109.206.96.34:8100
-D: Command: preset_01 with parameter us1.internet-radio.com:8180
-D: Command: preset_02 with parameter us2.internet-radio.com:8050
-D: Command: preset_03 with parameter us1.internet-radio.com:15919
-D: Command: preset_04 with parameter us2.internet-radio.com:8132
-D: Command: preset_05 with parameter us1.internet-radio.com:8105
-D: Command: preset_06 with parameter icecast.omroep.nl:80/radio1-bb-mp3
-D: Command: preset_07 with parameter 205.164.62.15:10032
-D: Command: preset_08 with parameter skonto.ls.lv:8002/mp3
-D: Command: preset_09 with parameter 85.17.121.216:8468
-D: Command: preset_10 with parameter 85.17.121.103:8800
-D: Command: preset_11 with parameter 85.17.122.39:8530
-D: Command: preset_12 with parameter 94.23.66.155:8106
-D: Command: preset_13 with parameter 205.164.62.22:70102
-D: Starting ESP Version 22-dec-2016... Free memory 15472
-D: Sketch size 327648, free size 720896
-D: Reset VS1053...
-D: End reset VS1053...
-D: Slow SPI,Testing VS1053 read/write registers...
-D: Fast SPI, Testing VS1053 read/write registers again...
-D: endFillByte is 0
-D: Selected network: NETGEAR-11
-D: Try WiFi NETGEAR-11
-D: IP = 192.168.2.13
-D: Start server for commands
-D: Connecting to MQTT broker.hivemq.com, port 1883, user none, password none...
-D: MQTT Connected to the broker broker.hivemq.com, session <null> present
-D: Subscribing to espradio at QoS 2, packetId = 1
-D: Publishing IP 192.168.2.13 to topic espradioIP
-D: MQTT Subscribe acknowledged, packetId = 1, QoS = 2
-D: MQTT Publish acknowledged, packetId = 2
-D: STOP requested
-D: Song stopped correctly after 0 msec
-D: New preset/file requested
-D: Connect to new host icecast.omroep.nl:80/radio1-bb-mp3
-D: Slash in station
-D: Connect to preset 6, host icecast.omroep.nl on port 80, extension /radio1-bb-mp3
-D: Connected to server
-D: Server: nginx/1.11.4
-D: Content-Type: audio/mpeg
-D: Connection: close
-D: Cache-Control: no-cache
-D: Expires: Mon, 26 Jul 1997 05:00:00 GMT
-D: Pragma: no-cache
-D: icy-br: 192
-D: ice-audio-info: bitrate=192
-D: icy-br: 192
-D: icy-genre: Talk
-D: icy-name: Radio 1
-D: icy-pub: 0
-D: icy-url: http://www.radio1.nl
-D: icy-metaint: 16000
-D: X-Instance-Name: ics2jwb.omroep.nl
-D: Switch to DATA, bitrate is 192
-D: First chunk:
-D: 72 3F C6 12 4E 4C EE E4
-D: DA FD C6 54 D8 05 0D 40
-D: FF 45 EA 5E 28 D4 27 60
-D: 15 37 22 BE DA 4A B1 72
-D: Metadata block 64 bytes
-D: Streamtitle found, 60 bytes
-D: StreamTitle='NPO Radio 1 - NOS Met het Oog Op Morgen - NOS';
 ```
