@@ -483,7 +483,7 @@ D: Command: preset_08 with parameter skonto.ls.lv:8002/mp3
 D: Command: preset_09 with parameter 94.23.66.155:8106
 D: Command: preset_10 with parameter ihr/IHR_IEDM
 D: Command: preset_11 with parameter ihr/IHR_TRAN
-D: Command: preset_12 with parameter ihr/WQTR
+D: Command: preset_12 with parameter ihr/CIMXFM
 D: Command: preset_13 with parameter ihr/CKMXAM
 D: Starting ESP Version Wed, 04 May 2017 10:00:00 GMT... Free memory 12448
 D: Sketch size 349760, free size 696320
