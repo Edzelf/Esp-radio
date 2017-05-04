@@ -524,4 +524,43 @@ D: 88 08 93 30 C4 80 E4 2A
 D: Metadata block 64 bytes
 D: Streamtitle found, 50 bytes
 D: StreamTitle='NPO Radio 1 - De Ochtend - KRO-NCRV';
+D: Command: xml with parameter IHR_TRAN
+D: STOP requested
+D: Stopping client
+D: Song stopped correctly after 0 msec
+D: Connect to new host: IHR_TRAN
+D: Connecting to url: http://playerservices.streamtheworld.com:80/api/livestream?version=1.5&mount=IHR
+D: Connected!
+D: XML parser processing...
+D: Found: 18073.live.streamtheworld.com:3690/IHR_TRANAAC_SC
+D: Closing XML connection.
+D: Stopping client
+D: Connect to new host 18073.live.streamtheworld.com:3690/IHR_TRANAAC_SC
+D: Connect to 18073.live.streamtheworld.com on port 3690, extension /IHR_TRANAAC_SC
+D: Connected to server
+D: Expires: Thu, 01 Dec 2003 16:00:00 GMT
+D: Cache-Control: no-cache, must-revalidate
+D: Pragma: no-cache
+D: Access-Control-Allow-Methods: GET, HEAD
+D: Access-Control-Allow-Origin: *
+D: Access-Control-Allow-Credentials: true
+D: Set-Cookie: uuid=e42b6045-278b-4d4d-9b9d-db3cc87d4921; expires=Sat, 22-Dec-2029 21:30:41 GMT; path=
+D: Content-Type: audio/aacp
+D: Connection: close
+D: icy-br: 48
+D: icy-description: Non-stop Trance and Progressive 24/7
+D: icy-genre: 
+D: icy-name: iHeart Trancid
+D: icy-url: 
+D: icy-metaint: 16000
+D: Server: MediaGateway 4.2.5-003
+D: Switch to DATA, bitrate is 48
+D: First chunk:
+D: FF F1 5E 40 23 FF FC 01
+D: 44 36 2C 91 56 54 09 44
+D: 82 11 9D F0 3B 8D 4A AB
+D: 90 32 CC 91 08 05 DE 4A
+D: Metadata block 48 bytes
+D: Streamtitle found, 34 bytes
+D: StreamTitle='Tiesto - Flight 643';
 ```
