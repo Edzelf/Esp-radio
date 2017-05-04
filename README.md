@@ -41,16 +41,16 @@ IDE version 1.8, ESP8266 software 2.2.0. No Arduino is required in this project.
 
 ### Libraries Used
 
-* ESP8266WiFi		Establishing the communication with WiFI	Part of ESP8266 Arduino default libraries.
-* SPI			Communication with VS1053 and TFT display	Part of Arduino default libraries.
-* Adafruit_GFX		Write info on the TFT screen (if configurated)	https://github.com/adafruit/Adafruit-GFX-Library
-* TFT_ILI9163C		Driver for the TFT screen (if configurated)	https://github.com/sumotoy/TFT_ILI9163C
-* ESPAsyncWebServer	Remote controlling the radio via http.		https://github.com/me-no-dev/ESPAsyncTCP
-* ESPAsyncTCP		Needed for webserver.				https://github.com/me-no-dev/ESPAsyncWebServer
-* ESP8266FS		Manage SPIFFS uploads (radio.ini)		https://github.com/esp8266/arduino-esp8266fs-plugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
-* ArduinoOTA		Software update over WiFi.			Part of ESP8266 Arduino default libraries.
-* AsyncMqttClient	Handle incoming MQTT messages.			https://github.com/marvinroger/async-mqtt-client
-* TinyXML		Decoding the iHeartRadio xml.			Adafruit fork https://github.com/adafruit/TinyXML
+* ESP8266WiFi - Establishing the communication with WiFI - Part of ESP8266 Arduino default libraries.
+* SPI	- Communication with VS1053 and TFT display - Part of Arduino default libraries.
+* Adafruit_GFX - Write info on the TFT screen (if configured) - https://github.com/adafruit/Adafruit-GFX-Library
+* TFT_ILI9163C - Driver for the TFT screen (if configured) - https://github.com/sumotoy/TFT_ILI9163C
+* ESPAsyncWebServer - Remote controlling the radio via http. - https://github.com/me-no-dev/ESPAsyncTCP
+* ESPAsyncTCP - Needed for webserver. - https://github.com/me-no-dev/ESPAsyncWebServer
+* ESP8266FS - Manage SPIFFS uploads (radio.ini) - https://github.com/esp8266/arduino-esp8266fs-plugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
+* ArduinoOTA - Software update over WiFi.	- Part of ESP8266 Arduino default libraries.
+* AsyncMqttClient - Handle incoming MQTT messages. - https://github.com/marvinroger/async-mqtt-client
+* TinyXML - Decoding the iHeartRadio xml.	- Adafruit fork https://github.com/adafruit/TinyXML
 
 The map with the ESP-Radio sketch must also contain the supplied headerfiles "index_html.h", "favicon_ico.h",
 "radio_css.h", "config_html.h" and "about_html.h". These files are included for the webinterface in PROGMEM.
