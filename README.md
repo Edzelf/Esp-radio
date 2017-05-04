@@ -347,7 +347,7 @@ It is also allowed to have multiple "wifi_" lines. The strongest Wifi accesspoin
 
 ## Configuration
 
-The Config button will bring up a second screen . Here you can edit the ini-file or upload an arbitrary file to the
+The Config button will bring up a second screen. Here you can edit the ini-file or upload an arbitrary file to the
 SPIFFS. The available Wifi networks are listed as well. The config screen will be shown automatically if the ESP8266
 cannot connect to one of the WiFi stations specified in the ini-file.
 
