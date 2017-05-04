@@ -37,7 +37,7 @@ MP3 stream and a 1.8 TFT color display to give some information about the radio 
 ## Software
 
 The software for the radio is supplied as an Arduino sketch that can be compiled for the ESP8266 using the Arduino
-IDE version 1.6.8, ESP8266 software 2.2.0. No Arduino is required in this project.
+IDE version 1.8, ESP8266 software 2.2.0. No Arduino is required in this project.
 
 ### Libraries Used
 
