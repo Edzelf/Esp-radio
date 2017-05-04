@@ -23,6 +23,7 @@ Features:
 -	Saves volume and preset station over restart.
 -	Bass and treble control.
 - Configuration also possible if no WiFi connection can be established.
+- Can play iHeartRadio stations.
 
 See documentation in pdf-file.
 
@@ -51,3 +52,4 @@ Last changes:
 - 06-may-2016: Added hidden SSID, added feature to web page.
 - 04-may-2016, Allow stations like "skonto.ls.lv:8002/mp3".
 - 03-may-2016, Add bass/treble settings (see also new index.html).
+- 04-may-2017, Integrate iHeartRadio, thanks to NonaSuomy
