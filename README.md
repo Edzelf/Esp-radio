@@ -28,6 +28,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 09-may-2017: Fixed issue on analog input.
 - 03-may-2017: Prevent to start inputstream if no network.
 - 26-feb-2017: Better output webinterface on preset change.
 - 01-feb-2017: Bugfix uploading files.
