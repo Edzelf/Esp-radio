@@ -120,10 +120,11 @@
 // 01-02-2017, ES: Bugfix file upload.
 // 26-04-2017, ES: Better output webinterface on preset change.
 // 03-05-2017, ES: Prevent to start inputstream if no network.
-// 04-05-2017, ES: Integrate iHeartRadio, thanks to NonaSuomy
+// 04-05-2017, ES: Integrate iHeartRadio, thanks to NonaSuomy.
+// 09-05-2017, ES: Fixed abs problem.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 04 May 2017 10:00:00 GMT"
+#define VERSION "Wed, 09 May 2017 07:30:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -924,6 +925,7 @@ void timer10sec()
 //                                  A N A G E T S W                                        *
 //******************************************************************************************
 // Translate analog input to switch number.  0 is inactive.                                *
+// Note that it is adviced to avoid expressions as the argument for the abs function.      *
 //******************************************************************************************
 uint8_t anagetsw ( uint16_t v )
 {
@@ -936,7 +938,8 @@ uint8_t anagetsw ( uint16_t v )
   {
     for ( i = 0 ; i < NUMANA ; i++ )
     {
-      newdist = abs ( analogsw[i] - v ) ;          // Compute difference
+      newdist = analogsw[i] - v ;                  // Compute difference
+      newdist = abs ( newdist ) ;                  // Make it absolute
       if ( newdist < oldmindist )                  // New least difference?
       {
         oldmindist = newdist ;                     // Yes, remember
@@ -2662,7 +2665,8 @@ String chomp ( String str )
 //   debug      = 0 or 1                    // Switch debugging on or off                  *
 //   reset                                  // Restart the ESP8266                         *
 //   analog                                 // Show current analog input                   *
-//  Commands marked with "*)" are sensible in ini-file only                                *
+// Commands marked with "*)" are sensible in ini-file only                                 *
+// Note that it is adviced to avoid expressions as the argument for the abs function.      *
 //******************************************************************************************
 char* analyzeCmd ( const char* par, const char* val )
 {
@@ -2682,7 +2686,8 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   argument.toLowerCase() ;                            // Force to lower case
   value = chomp ( val ) ;                             // Get the specified value
-  ivalue = abs ( value.toInt() ) ;                    // Also as an integer
+  ivalue = value.toInt() ;                            // Also as an integer
+  ivalue = abs ( ivalue ) ;                           // Make it absolute
   relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
   if ( argument.indexOf ( "down" ) == 0 )             // - relative setting?
   {
