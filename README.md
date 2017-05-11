@@ -28,7 +28,9 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 11-may-2017: Convert UTF8 characters before display, thanks to everyb313.
 - 09-may-2017: Fixed issue on analog input.
+- 04-may-2017: Integrate iHeartRadio, thanks to NonaSuomy
 - 03-may-2017: Prevent to start inputstream if no network.
 - 26-feb-2017: Better output webinterface on preset change.
 - 01-feb-2017: Bugfix uploading files.
@@ -53,4 +55,4 @@ Last changes:
 - 06-may-2016: Added hidden SSID, added feature to web page.
 - 04-may-2016, Allow stations like "skonto.ls.lv:8002/mp3".
 - 03-may-2016, Add bass/treble settings (see also new index.html).
-- 04-may-2017, Integrate iHeartRadio, thanks to NonaSuomy
+
