@@ -28,6 +28,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 24-may-2017: Correction. Do not skip first part of .mp3 file.
 - 11-may-2017: Convert UTF8 characters before display, thanks to everyb313.
 - 09-may-2017: Fixed issue on analog input.
 - 04-may-2017: Integrate iHeartRadio, thanks to NonaSuomy
