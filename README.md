@@ -1,5 +1,5 @@
 # Esp-radio
-Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 1-feb-2017.
+Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 24-may-2017.
 
 Features:
 -	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
