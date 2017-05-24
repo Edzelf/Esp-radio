@@ -124,9 +124,10 @@
 // 04-05-2017, ES: Integrate iHeartRadio, thanks to NonaSuomy.
 // 09-05-2017, ES: Fixed abs problem.
 // 11-05-2017, ES: Convert UTF8 characters before display, thanks to everyb313.
+// 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Thu, 11 May 2017 09:30:00 GMT"
+#define VERSION "Thu, 24 May 2017 16:55:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -2128,7 +2129,7 @@ void loop()
     {
       if ( connecttofile() )                            // Yes, open mp3-file
       {
-        datamode = INIT ;                               // Start in INIT mode
+        datamode = DATA ;                               // Start in DATA mode
       }
     }
     else
