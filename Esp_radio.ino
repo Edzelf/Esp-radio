@@ -125,10 +125,10 @@
 // 09-05-2017, ES: Fixed abs problem.
 // 11-05-2017, ES: Convert UTF8 characters before display, thanks to everyb313.
 // 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
-// 26-05-2017, ES: Correction playing from .m3u playlist.
+// 26-05-2017, ES: Correction playing from .m3u playlist and LC/UC problem.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Thu, 24 May 2017 16:55:00 GMT"
+#define VERSION "Fri, 26 May 2017 14:35:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -2274,6 +2274,7 @@ void handlebyte ( uint8_t b, bool force )
   static __attribute__((aligned(4))) uint8_t buf[32] ; // Buffer for chunk
   static int       bufcnt = 0 ;                        // Data in chunk
   static bool      firstchunk = true ;                 // First chunk as input
+  String           lcml ;                              // Lower case metaline
   String           ct ;                                // Contents type
   static bool      ctseen = false ;                    // First line of header seen or not
   int              inx ;                               // Pointer in metaline
@@ -2339,14 +2340,16 @@ void handlebyte ( uint8_t b, bool force )
       LFcount++ ;                                      // Count linefeeds
       if ( chkhdrline ( metaline.c_str() ) )           // Reasonable input?
       {
+        lcml = metaline ;                              // Use lower case for compare
+        lcml.toLowerCase() ;
         dbgprint ( metaline.c_str() ) ;                // Yes, Show it
-        if (metaline.indexOf ( "Content-Type" ) >= 0)  // Line with "Content-Type: xxxx/yyy"
+        if ( lcml.indexOf ( "content-type" ) >= 0 )    // Line with "Content-Type: xxxx/yyy"
         {
           ctseen = true ;                              // Yes, remember seeing this
           ct = metaline.substring ( 14 ) ;             // Set contentstype. Not used yet
           dbgprint ( "%s seen.", ct.c_str() ) ;
         }
-        if ( metaline.startsWith ( "icy-br:" ) )
+        if ( lcml.startsWith ( "icy-br:" ) )
         {
           bitrate = metaline.substring(7).toInt() ;    // Found bitrate tag, read the bitrate
           if ( bitrate == 0 )                          // For Ogg br is like "Quality 2"
@@ -2354,21 +2357,21 @@ void handlebyte ( uint8_t b, bool force )
             bitrate = 87 ;                             // Dummy bitrate
           }
         }
-        else if ( metaline.startsWith ("icy-metaint:" ) )
+        else if ( lcml.startsWith ( "icy-metaint:" ) )
         {
           metaint = metaline.substring(12).toInt() ;   // Found metaint tag, read the value
         }
-        else if ( metaline.startsWith ( "icy-name:" ) )
+        else if ( lcml.startsWith ( "icy-name:" ) )
         {
           icyname = metaline.substring(9) ;            // Get station name
           icyname.trim() ;                             // Remove leading and trailing spaces
           displayinfo ( icyname.c_str(), 60, 68,
                         YELLOW ) ;                     // Show station name at position 60
         }
-        else if ( metaline.startsWith ( "Transfer-Encoding:" ) )
+        else if ( lcml.startsWith ( "transfer-encoding:" ) )
         {
           // Station provides chunked transfer
-          if ( metaline.endsWith ( "chunked" ) )
+          if ( lcml.endsWith ( "chunked" ) )
           {
             chunked = true ;                           // Remember chunked transfer mode
             chunkcount = 0 ;                           // Expect chunkcount in DATA
