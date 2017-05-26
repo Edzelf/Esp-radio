@@ -125,6 +125,7 @@
 // 09-05-2017, ES: Fixed abs problem.
 // 11-05-2017, ES: Convert UTF8 characters before display, thanks to everyb313.
 // 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
+// 26-05-2017, ES: Correction playing from .m3u playlist.
 //
 // Define the version number, also used for webserver as Last-Modified header:
 #define VERSION "Thu, 24 May 2017 16:55:00 GMT"
@@ -2273,14 +2274,18 @@ void handlebyte ( uint8_t b, bool force )
   static __attribute__((aligned(4))) uint8_t buf[32] ; // Buffer for chunk
   static int       bufcnt = 0 ;                        // Data in chunk
   static bool      firstchunk = true ;                 // First chunk as input
+  String           ct ;                                // Contents type
+  static bool      ctseen = false ;                    // First line of header seen or not
   int              inx ;                               // Pointer in metaline
   int              i ;                                 // Loop control
 
   if ( datamode == INIT )                              // Initialize for header receive
   {
+    ctseen = false ;                                   // Contents type not seen yet
     metaint = 0 ;                                      // No metaint found
     LFcount = 0 ;                                      // For detection end of header
     bitrate = 0 ;                                      // Bitrate still unknown
+    dbgprint ( "Switch to HEADER" ) ;
     datamode = HEADER ;                                // Handle header
     totalcount = 0 ;                                   // Reset totalcount
     metaline = "" ;                                    // No metadata yet
@@ -2335,6 +2340,12 @@ void handlebyte ( uint8_t b, bool force )
       if ( chkhdrline ( metaline.c_str() ) )           // Reasonable input?
       {
         dbgprint ( metaline.c_str() ) ;                // Yes, Show it
+        if (metaline.indexOf ( "Content-Type" ) >= 0)  // Line with "Content-Type: xxxx/yyy"
+        {
+          ctseen = true ;                              // Yes, remember seeing this
+          ct = metaline.substring ( 14 ) ;             // Set contentstype. Not used yet
+          dbgprint ( "%s seen.", ct.c_str() ) ;
+        }
         if ( metaline.startsWith ( "icy-br:" ) )
         {
           bitrate = metaline.substring(7).toInt() ;    // Found bitrate tag, read the bitrate
@@ -2365,10 +2376,11 @@ void handlebyte ( uint8_t b, bool force )
         }
       }
       metaline = "" ;                                  // Reset this line
-      if ( LFcount == 2 )
+      if ( ( LFcount == 2 ) && ctseen )                // Some data seen and a double LF?
       {
-        dbgprint ( "Switch to DATA, bitrate is %d",    // Show bitrate
-                   bitrate ) ;
+        dbgprint ( "Switch to DATA, bitrate is %d"     // Show bitrate
+                   ", metaint is %d",                  // and metaint
+                   bitrate, metaint ) ;
         datamode = DATA ;                              // Expecting data now
         datacount = metaint ;                          // Number of bytes before first metadata
         bufcnt = 0 ;                                   // Reset buffer count
