@@ -126,9 +126,10 @@
 // 11-05-2017, ES: Convert UTF8 characters before display, thanks to everyb313.
 // 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
 // 26-05-2017, ES: Correction playing from .m3u playlist and LC/UC problem.
+// 31-05-2017, ES: Volume indicator on TFT.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Fri, 26 May 2017 14:35:00 GMT"
+#define VERSION "Wed, 31 May 2017 12:35:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -1159,6 +1160,27 @@ void timer100()
 
 
 //******************************************************************************************
+//                              D I S P L A Y V O L U M E                                  *
+//******************************************************************************************
+// Show the current volume as an indicator on the screen.                                  *
+//******************************************************************************************
+void displayvolume()
+{
+#if defined ( USETFT )
+  static uint8_t oldvol = 0 ;                        // Previous volume
+  uint8_t        pos ;                               // Positon of volume indicator
+
+  if ( vs1053player.getVolume() != oldvol )
+  {
+    pos = map ( vs1053player.getVolume(), 0, 100, 0, 160 ) ;
+  }
+  tft.fillRect ( 0, 126, pos, 2, RED ) ;             // Paint red part
+  tft.fillRect ( pos, 126, 160 - pos, 2, GREEN ) ;   // Paint green part
+#endif
+}
+
+
+//******************************************************************************************
 //                              D I S P L A Y I N F O                                      *
 //******************************************************************************************
 // Show a string on the LCD at a specified y-position in a specified color                 *
@@ -1298,7 +1320,7 @@ bool connecttohost()
   }
   pfs = dbgprint ( "Connect to %s on port %d, extension %s",
                    hostwoext.c_str(), port, extension.c_str() ) ;
-  displayinfo ( pfs, 60, 68, YELLOW ) ;             // Show info at position 60
+  displayinfo ( pfs, 60, 66, YELLOW ) ;             // Show info at position 60..125
   if ( mp3client.connect ( hostwoext.c_str(), port ) )
   {
     dbgprint ( "Connected to server" ) ;
@@ -2167,6 +2189,7 @@ void loop()
   {
     vs1053player.setVolume ( ini_block.reqvol ) ;       // Unmute
   }
+  displayvolume() ;                                     // Show volume on display
   if ( testfilename.length() )                          // File to test?
   {
     testfile ( testfilename ) ;                         // Yes, do the test
