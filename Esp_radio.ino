@@ -1299,6 +1299,9 @@ bool connecttohost()
   pfs = dbgprint ( "Connect to %s on port %d, extension %s",
                    hostwoext.c_str(), port, extension.c_str() ) ;
   displayinfo ( pfs, 60, 68, YELLOW ) ;             // Show info at position 60
+  pfs = dbgprint ( "IP = %d.%d.%d.%d",
+                   WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
+  displayinfo ( pfs, 90, 0, CYAN ) ;                // show ip at position 90
   if ( mp3client.connect ( hostwoext.c_str(), port ) )
   {
     dbgprint ( "Connected to server" ) ;
