@@ -12,3 +12,28 @@ The library was created to work with the **arduino Core**.
  
 The ESP8266 is the most popular Wi-Fi MCU (known also as ESP12, NodeMCU, WeMos, ...). 
 But the library should also work with classic Arduino Uno board too.
+
+## Usage 
+
+To Use this library in your PlatformIO project, simply add to your `platformio.ini` a dependency as following:
+
+```
+lib_deps =
+    baldram/ESP_VS1053_Library
+```
+
+From your `.cpp` code instantiate on object of VS1053 player as below:
+
+```
+VS1053 player(CS, DCS, DREQ);
+```
+
+The initialize player and use as in following example:
+
+```
+player.begin();
+player.setVolume(MAXIMUM_VOLUME);
+player.playChunk(helloMp3, sizeof(helloMp3));
+```
+
+For complete code please check `examples` folder.
