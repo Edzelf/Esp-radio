@@ -8,4 +8,4 @@
 
 char *log(const char *format, ...);
 
-#endifs
+#endif

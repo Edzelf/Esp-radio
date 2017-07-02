@@ -10,7 +10,7 @@
  *  - 2017: refactored to use as Platformio library by Marcin Szalomski (baldram[at]gmail.com)
  */
 
-#include "log.h"
+#include <log.h>
 #include <VS1053.h>
 
 VS1053::VS1053(uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin)
