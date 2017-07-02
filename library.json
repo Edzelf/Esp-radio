@@ -7,5 +7,5 @@
     "url": "https://github.com/baldram/ESP_VS1053_Library.git"
   },
   "frameworks": "arduino",
-  "platforms": ["atmelavr", "atmelsam", "espressif32", "espressif8266"]
+  "platforms": ["espressif32", "espressif8266"]
 }
