@@ -15,7 +15,7 @@ But the library should also work with classic Arduino Uno board too.
 
 ## Usage 
 
-To Use this library in your PlatformIO project, simply add to your `platformio.ini` a dependency as following:
+To use this library in your PlatformIO project, simply add to your `platformio.ini` a dependency as following:
 
 ```
 lib_deps =
@@ -28,7 +28,7 @@ From your `.cpp` code instantiate on object of VS1053 player as below:
 VS1053 player(CS, DCS, DREQ);
 ```
 
-The initialize player and use as in following example:
+Then initialize player and use as in following example:
 
 ```
 player.begin();
