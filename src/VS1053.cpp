@@ -10,7 +10,8 @@
  *  - 2017: refactored to use as Platformio library by Marcin Szalomski (baldram[at]gmail.com)
  */
 
-#include "VS1053.h"
+#include "log.h"
+#include <VS1053.h>
 
 VS1053::VS1053(uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin)
         : cs_pin(_cs_pin), dcs_pin(_dcs_pin), dreq_pin(_dreq_pin) {
@@ -96,7 +97,7 @@ bool VS1053::testComm(const char *header) {
     uint16_t delta = 300; // 3 for fast SPI
 
     if (!digitalRead(dreq_pin)) {
-        dbgprint("VS1053 not properly installed!");
+        log("VS1053 not properly installed!");
         // Allow testing without the VS1053 module
         pinMode(dreq_pin, INPUT_PULLUP); // DREQ is now input with pull-up
         return false;                    // Return bad result
@@ -108,14 +109,14 @@ bool VS1053::testComm(const char *header) {
     if (strstr(header, "Fast")) {
         delta = 3; // Fast SPI, more loops
     }
-    dbgprint(header); // Show a header
+    log(header); // Show a header
     for (i = 0; (i < 0xFFFF) && (cnt < 20); i += delta) {
         write_register(SCI_VOL, i);         // Write data to SCI_VOL
         r1 = read_register(SCI_VOL);        // Read back for the first time
         r2 = read_register(SCI_VOL);        // Read back a second time
         if (r1 != r2 || i != r1 || i != r2) // Check for 2 equal reads
         {
-            dbgprint("VS1053 error retry SB:%04X R1:%04X R2:%04X", i, r1, r2);
+            log("VS1053 error retry SB:%04X R1:%04X R2:%04X", i, r1, r2);
             cnt++;
             delay(10);
         }
@@ -132,11 +133,11 @@ bool VS1053::begin() {
     digitalWrite(dcs_pin, HIGH); // Start HIGH for SCI en SDI
     digitalWrite(cs_pin, HIGH);
     delay(100);
-    dbgprint("Reset VS1053...");
+    log("Reset VS1053...");
     digitalWrite(dcs_pin, LOW); // Low & Low will bring reset pin low
     digitalWrite(cs_pin, LOW);
     delay(500);
-    dbgprint("End reset VS1053...");
+    log("End reset VS1053...");
     digitalWrite(dcs_pin, HIGH); // Back to normal again
     digitalWrite(cs_pin, HIGH);
     delay(500);
@@ -165,7 +166,7 @@ bool VS1053::begin() {
     delay(10);
     await_data_request();
     endFillByte = wram_read(0x1E06) & 0xFF;
-    dbgprint("endFillByte is %X", endFillByte);
+    log("endFillByte is %X", endFillByte);
     // printDetails ( "After last clocksetting" ) ;
     delay(100);
     return result;
@@ -221,7 +222,7 @@ void VS1053::stopSong() {
         modereg = read_register(SCI_MODE); // Read status
         if ((modereg & _BV(SM_CANCEL)) == 0) {
             sdi_send_fillers(2052);
-            dbgprint("Song stopped correctly after %d msec", i * 10);
+            log("Song stopped correctly after %d msec", i * 10);
             return;
         }
         delay(10);
@@ -239,14 +240,14 @@ void VS1053::printDetails(const char *header) {
     uint16_t regbuf[16];
     uint8_t i;
 
-    dbgprint(header);
-    dbgprint("REG   Contents");
-    dbgprint("---   -----");
+    log(header);
+    log("REG   Contents");
+    log("---   -----");
     for (i = 0; i <= SCI_num_registers; i++) {
         regbuf[i] = read_register(i);
     }
     for (i = 0; i <= SCI_num_registers; i++) {
         delay(5);
-        dbgprint("%3X - %5X", i, regbuf[i]);
+        log("%3X - %5X", i, regbuf[i]);
     }
 }
