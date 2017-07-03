@@ -1,7 +1,7 @@
 # VS1053 library
 
-This is a library for the generic **VS1053 Codec Breakout**.
-A powerful MP3 / ACC / WMA decoder.
+This is a library for the generic **VS1053 Breakout**.
+A powerful Ogg Vorbis / MP3 / AAC / WMA / FLAC / MIDI Audio Codec chip.
 
 The library is a great base to build your own webradio player.
 
@@ -37,3 +37,9 @@ player.playChunk(helloMp3, sizeof(helloMp3));
 ```
 
 For complete code please check `examples` folder.
+
+## License
+
+This program is free software. You can redistribute it and/or modify it
+under the terms of the GNU General Public License version 2 as published
+by the Free Software Foundation.

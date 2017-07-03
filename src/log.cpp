@@ -1,5 +1,9 @@
 #include <log.h>
 
+/**
+ * Send a line of info to serial output. Works like vsprintf(), but checks the DEBUG flag.
+ * Print only if the flag is true. Always returns the the formatted string.
+ */
 char *log(const char *format, ...) {
 
     static char sbuf[DEBUG_BUFFER_SIZE];                    // For debug lines

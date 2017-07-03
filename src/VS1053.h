@@ -6,9 +6,13 @@
  * @authors baldram, edzelf, MagicCube, maniacbug
  *
  * Development log:
- *  - 2011: based on VS1053 Arduino library originally written by Maniacbug,
+ *  - 2011: based on VS1053 Arduino library originally written by J. Coliz (maniacbug),
  *  - 2016: refactored by Ed Smallenburg (edzelf) and integrated into Esp-radio sketch,
  *  - 2017: refactored to use as Platformio library by Marcin Szalomski (baldram[at]gmail.com)
+ *
+ *   This program is free software; you can redistribute it and/or modify it
+ *   under the terms of the GNU General Public License version 2 as published
+ *   by the Free Software Foundation.
  */
 
 #ifndef VS1053_H
