@@ -60,6 +60,8 @@ An example for ESP8266 based board like eg. LoLin NodeMCU V3 or WeMos D1 R2.
   
 ```
 
+<img alt="VS1053B and NodeMCU v3" title="VS1053B and NodeMCU v3" src="https://user-images.githubusercontent.com/16861531/27875071-3ead1674-61b2-11e7-9a69-02edafa7b286.jpg" width="300px" />
+
 ## Credits
 
 Based on library/applications:
