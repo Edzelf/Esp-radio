@@ -32,11 +32,13 @@
 
   lib_deps =
     baldram/ESP_VS1053_Library
+    ArduinoLog
 
 */
 
 #include <Arduino.h>
-#include <VS1053.h>
+#include <ArduinoLog.h> // PlatformIO library id=1532
+#include <VS1053.h> // this library
 #include <helloMp3.h>
 
 // Wiring of VS1053 board (SPI connected in a standard way)
@@ -55,16 +57,16 @@ void setup () {
     // open serial monitor for debugging
     Serial.begin(9600);
     while(!Serial && !Serial.available()){}
-
-    Serial.println("\nHello VS1053!");
+    Log.begin(LOG_LEVEL_VERBOSE, &Serial);
 
     // initialize a player
+    Log.notice("\n Hello VS1053!");
     player.begin();
     player.setVolume(VOLUME);
 }
 
 void loop() {
-    Serial.print("Playing sound... ");
+    Log.notice("Playing sound... ");
 
     // play mp3 flow each 3s
     player.playChunk(helloMp3, sizeof(helloMp3));
