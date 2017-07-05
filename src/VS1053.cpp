@@ -3,16 +3,32 @@
  * (Ogg Vorbis / MP3 / AAC / WMA / FLAC / MIDI Audio Codec Chip).
  * Adapted for Espressif ESP8266 and ESP32 boards.
  *
+ * version 1.0.1
+ *
+ * Licensed under GNU GPLv3 <http://gplv3.fsf.org/>
+ * Copyright © 2017
+ *
  * @authors baldram, edzelf, MagicCube, maniacbug
  *
  * Development log:
- *  - 2011: based on VS1053 Arduino library originally written by J. Coliz (maniacbug),
- *  - 2016: refactored by Ed Smallenburg (edzelf) and integrated into Esp-radio sketch,
- *  - 2017: refactored to use as Platformio library by Marcin Szalomski (baldram[at]gmail.com)
+ *  - 2011: initial VS1053 Arduino library
+ *          originally written by J. Coliz (github: @maniacbug),
+ *  - 2016: refactored and integrated into Esp-radio sketch
+ *          by Ed Smallenburg (github: @edzelf)
+ *  - 2017: refactored to use as PlatformIO library
+ *          by Marcin Szalomski (github: @baldram | twitter: @baldram)
  *
- *   This program is free software; you can redistribute it and/or modify it
- *   under the terms of the GNU General Public License version 2 as published
- *   by the Free Software Foundation.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License or later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <log.h>

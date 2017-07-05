@@ -32,14 +32,43 @@ Then initialize player and use as in following example:
 
 ```
 player.begin();
-player.setVolume(MAXIMUM_VOLUME);
+player.setVolume(VOLUME);
 player.playChunk(helloMp3, sizeof(helloMp3));
 ```
 
 For complete code please check `examples` folder.
 
+## Example wiring
+
+An example for ESP8266 based board like eg. LoLin NodeMCU V3 or WeMos D1 R2.
+
+```
+
+  ---------------------
+  | VS1053  | ESP8266 |
+  ---------------------
+  |   SCK   |   D5    |
+  |   MISO  |   D6    |
+  |   MOSI  |   D7    |
+  |   XRST  |   RST   |
+  |   CS    |   D1    |
+  |   DCS   |   D0    |
+  |   DREQ  |   D3    |
+  |   5V    |   VU    |
+  |   GND   |   G     |
+  ---------------------
+  
+```
+
+## Credits
+
+Based on library/applications:
+* [maniacbug/VS1053](https://github.com/maniacbug/VS1053) by [J. Coliz](https://github.com/maniacbug)
+* [Esp-radio](https://github.com/Edzelf/Esp-radio) by [Ed Smallenburg](https://github.com/Edzelf)
+* [smart-pod](https://github.com/MagicCube/smart-pod) by [Henry Li](https://github.com/MagicCube)
+
 ## License
 
-This program is free software. You can redistribute it and/or modify it
-under the terms of the GNU General Public License version 2 as published
-by the Free Software Foundation.
+Copyright (C) 2017
+
+Licensed under GNU GPLv3
