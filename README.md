@@ -6,7 +6,7 @@ Read more: [http://www.vlsi.fi/en/products/vs1053.html](http://www.vlsi.fi/en/pr
 
 The library is a great base to build your own webradio player.
 
-Designed specifically to work with the **Espressif ESP8266 and ESP32** boards. 
+Designed specifically to work with the **Espressif ESP8266** and **ESP32** boards. 
 
 There are currently two methods to program the ESP boards: the ESP-IDF and the ESP8266/ESP32 arduino Core.
 The library was created to work with the **arduino Core**.

@@ -32,7 +32,6 @@
 
   lib_deps =
     baldram/ESP_VS1053_Library
-    ArduinoLog
 
 */
 
