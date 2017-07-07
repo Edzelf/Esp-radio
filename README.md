@@ -42,17 +42,22 @@ Then initialize the player and use as in following example:
 ```
 player.begin();
 player.setVolume(VOLUME);
+player.switchToMp3Mode();
 player.playChunk(helloMp3, sizeof(helloMp3));
 ```
     
-For complete code please check `examples` folder.
+For complete code please check [examples](https://github.com/baldram/ESP_VS1053_Library/tree/master/examples) folder.
 
-#### 3rd party dependencies
+Please note that `player.switchToMp3Mode()` is an optional switch. Some of VS1053 modules will start up in MIDI mode. The result is no audio when playing MP3.
+You can modify the board, but there is a more elegant way without soldering. For more details please read a discussion here: [http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773](http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773).
+<br />No side effects for boards which do not need this switch, so you can call it just in case.
 
-The library use also a 3rd party logging framework [ArduinoLog](http://platformio.org/lib/show/1532/ArduinoLog/) for debugging purposes.<br /> 
-This dependency will be solved automatically.
+#### Third-party dependencies
 
-Then you are able to include and use this library from your code (you have several log levels):
+The library use also a third-party logging framework [ArduinoLog](http://platformio.org/lib/show/1532/ArduinoLog/) for debugging purposes.<br /> 
+This dependency will be resolved automatically.
+
+Then you are able to include and use this library from your code (it offers several log levels):
 
 ```
 #include <ArduinoLog.h>

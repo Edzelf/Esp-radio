@@ -33,6 +33,7 @@
 
 #include <ArduinoLog.h>
 #include <VS1053.h>
+#include <string>
 
 VS1053::VS1053(uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin)
         : cs_pin(_cs_pin), dcs_pin(_dcs_pin), dreq_pin(_dreq_pin) {
@@ -118,7 +119,7 @@ bool VS1053::testComm(const char *header) {
     uint16_t delta = 300; // 3 for fast SPI
 
     if (!digitalRead(dreq_pin)) {
-        Log.error("VS1053 not properly installed!");
+        Log.error("VS1053 not properly installed!" CR);
         // Allow testing without the VS1053 module
         pinMode(dreq_pin, INPUT_PULLUP); // DREQ is now input with pull-up
         return false;                    // Return bad result
@@ -130,14 +131,17 @@ bool VS1053::testComm(const char *header) {
     if (strstr(header, "Fast")) {
         delta = 3; // Fast SPI, more loops
     }
-    Log.notice(header); // Show a header
+
+    std::string headerCr = std::string(header) + CR;
+    Log.notice(headerCr.c_str());  // Show a header
+
     for (i = 0; (i < 0xFFFF) && (cnt < 20); i += delta) {
         write_register(SCI_VOL, i);         // Write data to SCI_VOL
         r1 = read_register(SCI_VOL);        // Read back for the first time
         r2 = read_register(SCI_VOL);        // Read back a second time
         if (r1 != r2 || i != r1 || i != r2) // Check for 2 equal reads
         {
-            Log.error("VS1053 error retry SB:%04X R1:%04X R2:%04X", i, r1, r2);
+            Log.error("VS1053 error retry SB:%04X R1:%04X R2:%04X" CR, i, r1, r2);
             cnt++;
             delay(10);
         }
@@ -154,11 +158,11 @@ bool VS1053::begin() {
     digitalWrite(dcs_pin, HIGH); // Start HIGH for SCI en SDI
     digitalWrite(cs_pin, HIGH);
     delay(100);
-    Log.notice("Reset VS1053...");
+    Log.notice("Reset VS1053..." CR);
     digitalWrite(dcs_pin, LOW); // Low & Low will bring reset pin low
     digitalWrite(cs_pin, LOW);
     delay(500);
-    Log.notice("End reset VS1053...");
+    Log.notice("End reset VS1053..." CR);
     digitalWrite(dcs_pin, HIGH); // Back to normal again
     digitalWrite(cs_pin, HIGH);
     delay(500);
@@ -168,16 +172,11 @@ bool VS1053::begin() {
     delay(20);
     // printDetails ( "20 msec after reset" ) ;
     result = testComm("Slow SPI,Testing VS1053 read/write registers...");
-    // Most VS1053 modules will start up in midi mode.  The result is that there is no audio
-    // when playing MP3.  You can modify the board, but there is a more elegant way:
-    wram_write(0xC017, 3); // GPIO DDR = 3
-    wram_write(0xC019, 0); // GPIO ODATA = 0
-    // Read more here: http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773
-    delay(100);
-    // printDetails ( "After test loop" ) ;
-    softReset(); // Do a soft reset
+
+    //softReset();
+
     // Switch on the analog parts
-    write_register(SCI_AUDATA, 44100 + 1); // 44.1kHz + stereo
+    write_register(SCI_AUDATA, 44101); // 44.1kHz stereo
     // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
     write_register(SCI_CLOCKF, 6 << 12); // Normal clock settings multiplyer 3.0 = 12.2 MHz
     // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
@@ -187,7 +186,7 @@ bool VS1053::begin() {
     delay(10);
     await_data_request();
     endFillByte = wram_read(0x1E06) & 0xFF;
-    Log.notice("endFillByte is %X", endFillByte);
+    Log.notice("endFillByte is %X" CR, endFillByte);
     // printDetails ( "After last clocksetting" ) ;
     delay(100);
     return result;
@@ -243,7 +242,7 @@ void VS1053::stopSong() {
         modereg = read_register(SCI_MODE); // Read status
         if ((modereg & _BV(SM_CANCEL)) == 0) {
             sdi_send_fillers(2052);
-            Log.notice("Song stopped correctly after %d msec", i * 10);
+            Log.notice("Song stopped correctly after %d msec" CR, i * 10);
             return;
         }
         delay(10);
@@ -261,14 +260,32 @@ void VS1053::printDetails(const char *header) {
     uint16_t regbuf[16];
     uint8_t i;
 
-    Log.notice(header);
-    Log.notice("REG   Contents");
-    Log.notice("---   -----");
+    std::string headerCr = std::string(header) + CR;
+    Log.notice(headerCr.c_str());
+
+    Log.notice("REG   Contents" CR);
+    Log.notice("---   -----" CR);
     for (i = 0; i <= SCI_num_registers; i++) {
         regbuf[i] = read_register(i);
     }
     for (i = 0; i <= SCI_num_registers; i++) {
         delay(5);
-        Log.notice("%3X - %5X", i, regbuf[i]);
+        Log.notice("%3X - %5X" CR, i, regbuf[i]);
     }
+}
+
+/**
+ * An optional switch.
+ * Most VS1053 modules will start up in MIDI mode. The result is that there is no audio when playing MP3.
+ * You can modify the board, but there is a more elegant way without soldering.
+ * No side effects for boards which do not need this switch. It means you can call it just in case.
+ *
+ * Read more here: http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773
+ */
+void VS1053::switchToMp3Mode(void)
+{
+    wram_write(0xC017, 3); // GPIO DDR = 3
+    wram_write(0xC019, 0); // GPIO ODATA = 0
+    delay(100);
+    softReset();
 }

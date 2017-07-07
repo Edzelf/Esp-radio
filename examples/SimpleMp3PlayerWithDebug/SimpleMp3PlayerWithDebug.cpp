@@ -3,6 +3,10 @@
   https://github.com/baldram/ESP_VS1053_Library
   If you like this project, please add a star.
 
+  For debugging it uses third-party library ArduinoLog.
+  No need to add a depenency in lib_deps explicitly, since
+  it is used internally by ESP_VS1053_Library.
+
   Copyright (C) 2017 Marcin Szalomski (github.com/baldram)
   Licensed under GNU GPL v3
 
@@ -36,6 +40,7 @@
 */
 
 #include <Arduino.h>
+#include <ArduinoLog.h> // PlatformIO library id=1532
 #include <VS1053.h> // this ESP_VS1053_Library
 #include <helloMp3.h>
 
@@ -52,13 +57,21 @@ void setup () {
     // initialize SPI
     SPI.begin();
 
+    // open serial monitor for debugging
+    Serial.begin(9600);
+    while(!Serial && !Serial.available()){}
+    Log.begin(LOG_LEVEL_VERBOSE, &Serial);
+
     // initialize a player
+    Log.notice("Hello VS1053!\n");
     player.begin();
     player.switchToMp3Mode(); // optional, some boards require this
     player.setVolume(VOLUME);
 }
 
 void loop() {
+    Log.notice("Playing sound... ");
+
     // play mp3 flow each 3s
     player.playChunk(helloMp3, sizeof(helloMp3));
     delay(3000);

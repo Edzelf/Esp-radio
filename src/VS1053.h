@@ -129,6 +129,8 @@ public:
     inline bool data_request() const {
         return (digitalRead(dreq_pin) == HIGH);
     }
+
+    void switchToMp3Mode(void);
 };
 
 #endif
