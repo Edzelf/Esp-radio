@@ -22,8 +22,9 @@ To use this library in your PlatformIO project, simply add to your `platformio.i
 
 ```
 lib_deps =
-    baldram/ESP_VS1053_Library
+    ESP_VS1053_Library
 ```
+or `lib_deps = 1744` .
 
 From your `.cpp` or `.ino` code include VS1053 library.
 
@@ -75,23 +76,19 @@ Log.notice("Hello, this is a debug message!");
 
 An example for ESP8266 based board like eg. LoLin NodeMCU V3 or WeMos D1 R2.
 
-```
+|  VS1053  | ESP8266  |
+|----------|----------|
+| SCK      | D5       |
+| MISO     | D6       |
+| MOSI     | D7       |
+| XRST     | RST      |
+| CS       | D1       |
+| DCS      | D0       |
+| DREQ     | D3       |
+| 5V       | VU       |
+| GND      | G        |
 
-  ---------------------
-  | VS1053  | ESP8266 |
-  ---------------------
-  |   SCK   |   D5    |
-  |   MISO  |   D6    |
-  |   MOSI  |   D7    |
-  |   XRST  |   RST   |
-  |   CS    |   D1    |
-  |   DCS   |   D0    |
-  |   DREQ  |   D3    |
-  |   5V    |   VU    |
-  |   GND   |   G     |
-  ---------------------
-  
-```
+For ESP32 and other boards wiring examples please see thread [Supported hardware](https://github.com/baldram/ESP_VS1053_Library/issues/1) and [Tested boards](https://github.com/baldram/ESP_VS1053_Library/blob/master/doc/SimpleMp3Player/tested-boards.md) list.
 
 <img alt="VS1053B and NodeMCU v3" title="VS1053B and NodeMCU v3" src="https://user-images.githubusercontent.com/16861531/27875071-3ead1674-61b2-11e7-9a69-02edafa7b286.jpg" width="300px" />
 

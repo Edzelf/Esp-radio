@@ -1,6 +1,7 @@
 {
   "name": "ESP_VS1053_Library",
-  "keywords": "vs1053, esp8266, esp32, codec, mp3",
+  "version": "1.0.3",
+  "keywords": "vs1053, esp8266, esp32, nodemcu, codec, mp3",
   "description": "This is a driver library for VS1053 MP3 Codec Breakout adapted for Espressif ESP8266 and ESP32 boards",
     "authors": [
     {
@@ -22,5 +23,13 @@
       "frameworks": "arduino",
       "platforms": "espressif8266"
     }
+  ],
+  "examples": [
+    "[Ee]xamples/*.cpp",
+    "[Ee]xamples/*.ino",
+    "[Ee]xamples/*.h",
+    "[Ee]xamples/*/*.cpp",
+    "[Ee]xamples/*/*.ino",
+    "[Ee]xamples/*/*.h"
   ]
 }

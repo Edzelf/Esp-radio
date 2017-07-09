@@ -25,7 +25,9 @@
   |   GND   |   G     |
   ---------------------
 
-  Note: It's just an example, you may use a different pins definition
+  Note: It's just an example, you may use a different pins definition.
+  For ESP32 example, please follow the link:
+    https://github.com/baldram/ESP_VS1053_Library/issues/1#issuecomment-313907348
 
   To run this example define the platformio.ini as below.
 
@@ -35,13 +37,20 @@
   framework = arduino
 
   lib_deps =
-    baldram/ESP_VS1053_Library
+    ESP_VS1053_Library
 
 */
 
 #include <Arduino.h>
-#include <ArduinoLog.h> // PlatformIO library id=1532
-#include <VS1053.h> // this ESP_VS1053_Library
+
+// ArduinoLog.h is PlatformIO library id=1532
+#include <ArduinoLog.h>
+
+// This ESP_VS1053_Library
+#include <VS1053.h>
+
+// Please find helloMp3.h file here:
+//      https://github.com/baldram/ESP_VS1053_Library/blob/master/examples/SimpleMp3Player/helloMp3.h
 #include <helloMp3.h>
 
 // Wiring of VS1053 board (SPI connected in a standard way)
