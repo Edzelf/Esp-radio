@@ -12,19 +12,17 @@ There are currently two methods to program the ESP boards: the ESP-IDF and the E
 The library was created to work with the **arduino Core**.
  
 The ESP8266 is the most popular Wi-Fi MCU (known also as ESP12, NodeMCU, WeMos, ...). 
-But the library should also work with classic Arduino Uno board too.
 
 ## Usage 
 
 #### Configure and use the library
 
-To use this library in your PlatformIO project, simply add to your `platformio.ini` a dependency as following:
+To use this library in your PlatformIO project, simply add to your `platformio.ini` a dependency (id=1744) as following:
 
 ```
 lib_deps =
     ESP_VS1053_Library
 ```
-or `lib_deps = 1744` .
 
 From your `.cpp` or `.ino` code include VS1053 library.
 
@@ -88,7 +86,7 @@ An example for ESP8266 based board like eg. LoLin NodeMCU V3 or WeMos D1 R2.
 | 5V       | VU       |
 | GND      | G        |
 
-For ESP32 and other boards wiring examples please see thread [Supported hardware](https://github.com/baldram/ESP_VS1053_Library/issues/1) and [Tested boards](https://github.com/baldram/ESP_VS1053_Library/blob/master/doc/SimpleMp3Player/tested-boards.md) list.
+For ESP32 and other boards wiring examples please see thread [Supported hardware](https://github.com/baldram/ESP_VS1053_Library/issues/1) and [Tested boards](https://github.com/baldram/ESP_VS1053_Library/blob/master/doc/tested-boards.md) list.
 
 <img alt="VS1053B and NodeMCU v3" title="VS1053B and NodeMCU v3" src="https://user-images.githubusercontent.com/16861531/27875071-3ead1674-61b2-11e7-9a69-02edafa7b286.jpg" width="300px" />
 
