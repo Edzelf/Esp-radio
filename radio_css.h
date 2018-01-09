@@ -8,8 +8,8 @@ body {
 
 h1 {
    color: navy;
-   margin-left: 20px;
-   font-size: 150%
+   margin-left: 0px;
+   font-size: 150%;
 }
 
 ul {
@@ -24,8 +24,16 @@ ul {
    z-index:100;
 }
 
+li .pull-left-shift {
+   float: left;
+   margin-left: 40px;
+   font-size: 120%;
+}
+
 li .pull-left {
    float: left;
+   margin-left: 20px;
+   font-size: 120%;
 }
 
 li .pull-right {
