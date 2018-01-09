@@ -24,10 +24,12 @@ Features:
 -	Bass and treble control.
 - Configuration also possible if no WiFi connection can be established.
 - Can play iHeartRadio stations.
+- 1, 3, or 4 button control
 
 See documentation in pdf-file.
 
 Last changes:
+- 03-jan-2018: Changed the TFT Lib to TFT_ST7735-1.0p1, 4-button ana control, open AP mode.
 - 31-may-2017: Volume indicator on display.
 - 26-may-2017: Correction playing .m3u playlists.
 - 24-may-2017: Correction. Do not skip first part of .mp3 file.
