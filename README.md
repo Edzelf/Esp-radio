@@ -1,5 +1,5 @@
 # Esp-radio
-Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 24-may-2017.
+Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE. ESP8266 core 2.3.0.
 
 Features:
 -	Can connect to thousands of Internet radio stations that broadcast MP3 or Ogg audio streams.
@@ -29,6 +29,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 04-jan-2018: Web interface layout update, TFT layout update.
 - 03-jan-2018: Changed the TFT Lib to TFT_ST7735-1.0p1, 4-button ana control, open AP mode.
 - 31-may-2017: Volume indicator on display.
 - 26-may-2017: Correction playing .m3u playlists.
