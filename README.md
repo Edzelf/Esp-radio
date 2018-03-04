@@ -1,6 +1,8 @@
 # Esp-radio
 Internet radio based on Esp8266 and VS1053.  Will compile in Arduino IDE.  New version 24-may-2017.
 
+Updated on 04-mar-2018 by nixnuex to support IR remote control for volume, station selection and mute. Simply attach a TSOP31238 IR receiver diode to a free GPIO pin and insert the IR codes according to your remote control.
+
 WARNING: If you are using V2.4.0 of the core library: set IwIP Variant to "V1.4 Prebuilt" in the Tools of the IDE.
 
 Features:
@@ -26,10 +28,12 @@ Features:
 -	Bass and treble control.
 - Configuration also possible if no WiFi connection can be established.
 - Can play iHeartRadio stations.
+- Can be controlled with an IR receiver and an IR remote control
 
 See documentation in pdf-file.
 
 Last changes:
+- 04-mar-2018: Add support for IR remote controle through IRremoteESP8266
 - 31-may-2017: Volume indicator on display.
 - 26-may-2017: Correction playing .m3u playlists.
 - 24-may-2017: Correction. Do not skip first part of .mp3 file.
