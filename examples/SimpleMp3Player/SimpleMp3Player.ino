@@ -42,7 +42,7 @@
 
 // Please find helloMp3.h file here:
 //   github.com/baldram/ESP_VS1053_Library/blob/master/examples/SimpleMp3Player/helloMp3.h
-#include <helloMp3.h>
+#include "helloMp3.h"
 
 // Wiring of VS1053 board (SPI connected in a standard way)
 #define VS1053_CS     D1
