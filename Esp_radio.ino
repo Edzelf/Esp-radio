@@ -56,24 +56,24 @@
 // The SPI interface for VS1053 and TFT uses hardware SPI.
 //
 // Wiring:
-// NodeMCU  GPIO    Pin to program  Wired to LCD        Wired to VS1053      Wired to rest
-// -------  ------  --------------  ---------------     -------------------  ---------------------
-// D0       GPIO16  16              -                   pin 1 DCS            -
-// D1       GPIO5    5              -                   pin 2 CS             LED on nodeMCU
-// D2       GPIO4    4              -                   pin 4 DREQ           -
-// D3       GPIO0    0 FLASH        -                   -                    Control button "Next station"
-// D4       GPIO2    2              pin 3 (D/C)         -                    (OR)Control button "Station 1"
-// D5       GPIO14  14 SCLK         pin 5 (CLK)         pin 5 SCK            -
-// D6       GPIO12  12 MISO         -                   pin 7 MISO           -
-// D7       GPIO13  13 MOSI         pin 4 (DIN)         pin 6 MOSI           -
-// D8       GPIO15  15              pin 2 (CS)          -                    (OR)Control button "Previous station"
-// D9       GPI03    3 RXD0         -                   -                    Reserved serial input
-// D10      GPIO1    1 TXD0         -                   -                    Reserved serial output
-// -------  ------  --------------  ---------------     -------------------  ---------------------
-// GND      -        -              pin 8 (GND)         pin 8 GND            Power supply
-// VCC 3.3  -        -              pin 6 (VCC)         -                    LDO 3.3 Volt
-// VCC 5 V  -        -              pin 7 (BL)          pin 9 5V             Power supply
-// RST      -        -              pin 1 (RST)         pin 3 RESET          Reset circuit
+// NodeMCU  GPIO    Pin to program  Wired to LCD  Wired to VS1053  IR Rcv TSOP31238  Wired to rest
+// -------  ------  --------------  ------------  ---------------  ----------------  ---------------------
+// D0       GPIO16  16              -             pin 1 DCS        -                 -
+// D1       GPIO5    5              -             pin 2 CS         -                 LED on nodeMCU
+// D2       GPIO4    4              -             pin 4 DREQ       -                 -
+// D3       GPIO0    0 FLASH        -             -                OUT               (OR)Control button "Next station"
+// D4       GPIO2    2              pin 3 (D/C)   -                -                 (OR)Control button "Station 1"
+// D5       GPIO14  14 SCLK         pin 5 (CLK)   pin 5 SCK        -                 -
+// D6       GPIO12  12 MISO         -             pin 7 MISO       -                 -
+// D7       GPIO13  13 MOSI         pin 4 (DIN)   pin 6 MOSI       -                 -
+// D8       GPIO15  15              pin 2 (CS)    -                -                 (OR)Control button "Previous station"
+// D9       GPI03    3 RXD0         -             -                -                 Reserved serial input
+// D10      GPIO1    1 TXD0         -             -                -                 Reserved serial output
+// -------  ------  --------------  ------------  ---------------  ----------------  ---------------------
+// GND      -        -              pin 8 (GND)   pin 8 GND        GND               Power supply
+// VCC 3.3  -        -              pin 6 (VCC)   -                VCC               LDO 3.3 Volt
+// VCC 5 V  -        -              pin 7 (BL)    pin 9 5V         -                 Power supply
+// RST      -        -              pin 1 (RST)   pin 3 RESET      -                 Reset circuit
 //
 // The reset circuit is a circuit with 2 diodes to GPIO5 and GPIO16 and a resistor to ground
 // (wired OR gate) because there was not a free GPIO output available for this function.
@@ -127,9 +127,10 @@
 // 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
 // 26-05-2017, ES: Correction playing from .m3u playlist and LC/UC problem.
 // 31-05-2017, ES: Volume indicator on TFT.
+// 04-03-2018, nixnuex: Add support for IR remote control through IRremoteESP8266 library
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 31 May 2017 12:35:00 GMT"
+#define VERSION "Wed, 04 March 2018 14:38:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -199,6 +200,31 @@ extern "C"
 #define NAME "Esp-radio"
 // Maximum number of MQTT reconnects before give-up
 #define MAXMQTTCONNECTS 20
+
+// Support for IR remote control for station and volume control through IRremoteESP8266 library
+// Enable support for IRremote by uncommenting the next line and setting IRRECV_PIN and the IRCODEx commands
+//#define USEIRRECV
+#if defined(USEIRRECV)
+ // IR receiver pin, 0 for GPIO0 / D3 on NodeMCU. Check for use by other peripherals!
+uint16_t IRRECV_PIN = 0;
+// IRremote button definitions. Read out using Examples->IRremoteESP8266->IRrecvDemo.ino
+#define IRCODEVOLDOWN   0x77E13040
+#define IRCODEVOLUP     0x77E15040
+#define IRCODEPREV      0x77E19040
+#define IRCODENEXT      0x77E16040
+#define IRCODEHOME      0x77E1C040
+#define IRCODEMUTE      0x77E1A040
+
+#ifndef UNIT_TEST
+#include <Arduino.h>
+#endif
+#include <IRremoteESP8266.h>
+#include <IRrecv.h>
+#include <IRutils.h>
+IRrecv irrecv(IRRECV_PIN);
+decode_results decodedIRCommand;
+#endif
+
 //
 //******************************************************************************************
 // Forward declaration of various functions                                                *
@@ -243,7 +269,7 @@ struct ini_struct
   String         passwd ;                                  // Password for WiFi network
 } ;
 
-enum datamode_t { INIT = 1, HEADER = 2, DATA = 4,
+enum datamode_t { INIT = 1, HEADERDM = 2, DATA = 4,
                   METADATA = 8, PLAYLISTINIT = 16,
                   PLAYLISTHEADER = 32, PLAYLISTDATA = 64,
                   STOPREQD = 128, STOPPED = 256
@@ -940,7 +966,7 @@ void timer10sec()
   static uint8_t  morethanonce = 0 ;              // Counter for succesive fails
   static uint8_t  t600 = 0 ;                      // Counter for 10 minutes
 
-  if ( datamode & ( INIT | HEADER | DATA |        // Test op playing
+  if ( datamode & ( INIT | HEADERDM | DATA |        // Test op playing
                     METADATA | PLAYLISTINIT |
                     PLAYLISTHEADER |
                     PLAYLISTDATA ) )
@@ -1088,6 +1114,7 @@ void timer100()
   uint16_t       v ;                              // Analog input value 0..1023
   static uint8_t aoldval = 0 ;                    // Previous value of analog input switch
   uint8_t        anewval ;                        // New value of analog input switch (0..3)
+  uint8_t oldvol;                                 // Old volume for IRremote update
 
   if ( ++count10sec == 100  )                     // 10 seconds passed?
   {
@@ -1156,6 +1183,43 @@ void timer100()
       }
     }
   }
+
+  // Check for and execute new IR remote control commands
+#if defined(USEIRRECV)
+  if (irrecv.decode(&decodedIRCommand)) {
+    dbgprint ("IR Command received");
+    oldvol = vs1053player.getVolume();
+    if (decodedIRCommand.value == IRCODEVOLDOWN) {
+      oldvol = vs1053player.getVolume();
+      ini_block.reqvol = oldvol - 2;
+    }
+    if (decodedIRCommand.value == IRCODEVOLUP) {
+      oldvol = vs1053player.getVolume();
+      ini_block.reqvol = oldvol + 2;
+    }
+    if (ini_block.reqvol < 0) ini_block.reqvol = 0;
+    if (ini_block.reqvol > 100) ini_block.reqvol = 100;
+    dbgprint ("Volume is now %d", ini_block.reqvol);
+
+    if (decodedIRCommand.value == IRCODEPREV) {
+      ini_block.newpreset = currentpreset - 1;
+      dbgprint ("IR Command: previous station");
+    }
+    if (decodedIRCommand.value == IRCODENEXT) {
+      ini_block.newpreset = currentpreset + 1;
+      dbgprint ("IR Command: next radio station");
+    }
+    if (decodedIRCommand.value == IRCODEHOME) {
+      ini_block.newpreset = 0;
+      dbgprint ("IR Command: home station");
+    }
+    if (decodedIRCommand.value == IRCODEMUTE) {
+      muteflag = !muteflag;
+      dbgprint ("IR Command: mute");
+    }
+    irrecv.resume();  // Get ready to receive next IR command
+  }
+#endif
 }
 
 
@@ -1804,6 +1868,11 @@ void setup()
   dbgprint ( "Sketch size %d, free size %d",
              ESP.getSketchSize(),
              ESP.getFreeSketchSpace() ) ;
+
+#if defined(USEIRRECV)
+  irrecv.enableIRIn(); // Enable IR receiver
+#endif
+
   pinMode ( BUTTON2, INPUT_PULLUP ) ;                  // Input for control button 2
   vs1053player.begin() ;                               // Initialize VS1053 player
 # if defined ( USETFT )
@@ -2039,7 +2108,7 @@ void loop()
   // stream or file
 
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
-  if ( datamode & ( INIT | HEADER | DATA |              // Test op playing
+  if ( datamode & ( INIT | HEADERDM | DATA |              // Test op playing
                     METADATA | PLAYLISTINIT |
                     PLAYLISTHEADER |
                     PLAYLISTDATA ) )
@@ -2100,7 +2169,7 @@ void loop()
   }
   if ( localfile )
   {
-    if ( datamode & ( INIT | HEADER | DATA |           // Test op playing
+    if ( datamode & ( INIT | HEADERDM | DATA |           // Test op playing
                       METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER |
                       PLAYLISTDATA ) )
@@ -2310,7 +2379,7 @@ void handlebyte ( uint8_t b, bool force )
     LFcount = 0 ;                                      // For detection end of header
     bitrate = 0 ;                                      // Bitrate still unknown
     dbgprint ( "Switch to HEADER" ) ;
-    datamode = HEADER ;                                // Handle header
+    datamode = HEADERDM ;                                // Handle header
     totalcount = 0 ;                                   // Reset totalcount
     metaline = "" ;                                    // No metadata yet
     firstchunk = true ;                                // First chunk expected
@@ -2350,7 +2419,7 @@ void handlebyte ( uint8_t b, bool force )
     }
     return ;
   }
-  if ( datamode == HEADER )                            // Handle next byte of MP3 header
+  if ( datamode == HEADERDM )                            // Handle next byte of MP3 header
   {
     if ( ( b > 0x7F ) ||                               // Ignore unprintable characters
          ( b == '\r' ) ||                              // Ignore CR
@@ -2860,7 +2929,7 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "stop" )                      // Stop requested?
   {
-    if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
+    if ( datamode & ( HEADERDM | DATA | METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER | PLAYLISTDATA ) )
 
     {
@@ -2880,7 +2949,7 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "station" )                   // Station in the form address:port
   {
-    if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
+    if ( datamode & ( HEADERDM | DATA | METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER | PLAYLISTDATA ) )
     {
       datamode = STOPREQD ;                           // Request STOP
@@ -2893,7 +2962,7 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "xml" )
   {
-    if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
+    if ( datamode & ( HEADERDM | DATA | METADATA | PLAYLISTINIT |
                       PLAYLISTHEADER | PLAYLISTDATA ) )
     {
       datamode = STOPREQD ;                           // Request STOP
