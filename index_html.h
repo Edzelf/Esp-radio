@@ -4,20 +4,20 @@ const char index_html[] PROGMEM = R"=====(
 <!DOCTYPE html>
 <html>
  <head>
-  <title>ESP-radio</title>
+  <title>Internet Radio Player</title>
   <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
   <link rel="Shortcut Icon" type="image/ico" href="favicon.ico">
  </head>
  <body>
   <ul>
-   <li><a class="pull-left" href="#">ESP Radio</a></li>
-   <li><a class="pull-left active" href="/index.html">Control</a></li>
-   <li><a class="pull-left" href="/config.html">Config</a></li>
-   <li><a class="pull-left" href="/about.html">About</a></li>
+   <li><a class="pull-left-shift active" href="index.html">Control</a></li>
+   <li><a class="pull-left" href="config.html">Config</a></li>
+   <li><a class="pull-left" href="about.html">About</a></li>
   </ul>
-  <br><br><br>
   <center>
-   <h1>** ESP Radio **</h1>
+  <br><br><br>
+   <h1>Internet Radio Player Main Control Page</h1>
+   <br>
    <button class="button" onclick="httpGet('downpreset=1')">PREV</button>
    <button class="button" onclick="httpGet('uppreset=1')">NEXT</button>
    <button class="button" onclick="httpGet('downvolume=2')">VOL-</button>
@@ -28,7 +28,8 @@ const char index_html[] PROGMEM = R"=====(
    <button class="button" onclick="httpGet('test')">TEST</button>
    <table style="width:500px">
     <tr>
-     <td colspan="2"><center>
+     <td colspan="2">
+     <center>
        <label for="selpres"><big>Preset:</big></label>
        <br>
        <select class="select selectw" onChange="handlepreset(this)" id="selpres">

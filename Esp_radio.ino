@@ -1,3 +1,4 @@
+
 //******************************************************************************************
 //*  Esp_radio -- Webradio receiver for ESP8266, 1.8 color display and VS1053 MP3 module,  *
 //*               by Ed Smallenburg (ed@smallenburg.nl)                                    *
@@ -7,11 +8,10 @@
 // ESP8266 libraries used:
 //  - ESP8266WiFi       - Part of ESP8266 Arduino default libraries.
 //  - SPI               - Part of Arduino default libraries.
-//  - Adafruit_GFX      - https://github.com/adafruit/Adafruit-GFX-Library
-//  - TFT_ILI9163C      - https://github.com/sumotoy/TFT_ILI9163C
+//  - TFT_ST7735        - https://github.com/sumotoy/TFT_ST7735
 //  - ESPAsyncTCP       - https://github.com/me-no-dev/ESPAsyncTCP
 //  - ESPAsyncWebServer - https://github.com/me-no-dev/ESPAsyncWebServer
-//  - FS - https://github.com/esp8266/arduino-esp8266fs-plugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
+//  - FS                - https://github.com/esp8266/arduino-esp8266fs-plugin/releases/download/0.2.0/ESP8266FS-0.2.0.zip
 //  - ArduinoOTA        - Part of ESP8266 Arduino default libraries.
 //  - AsyncMqttClient   - https://github.com/marvinroger/async-mqtt-client
 //  - TinyXML           - Fork https://github.com/adafruit/TinyXML
@@ -39,10 +39,9 @@
 // The metadata is empty in most cases, but if any is available the content will be presented on the TFT.
 // Pushing the input button causes the player to select the next preset station present in the .ini file.
 //
-// The display used is a Chinese 1.8 color TFT module 128 x 160 pixels.  The TFT_ILI9163C.h
-// file has been changed to reflect this particular module.  TFT_ILI9163C.cpp has been
-// changed to use the full screenwidth if rotated to mode "3".  Now there is room for 26
-// characters per line and 16 lines.  Software will work without installing the display.
+// The display used is a Chinese 1.8 color TFT module 128 x 160 pixels with the TFT_ST7735 library.
+// I used rotation mode 1 (flat foil cable on the left side). This lib supports text background and much more.
+// Software will work without installing the display too. Comment out this line below: "#define USETFT"
 // If no TFT is used, you may use GPIO2 and GPIO15 as control buttons.  See definition of "USETFT" below.
 // Switches are than programmed as:
 // GPIO2 : "Goto station 1"
@@ -82,6 +81,7 @@
 // Webserver produces error "LmacRxBlk:1" after some time.  After that it will work very slow.
 // The program will reset the ESP8266 in such a case.  Now we have switched to async webserver,
 // the problem still exists, but the program will not crash anymore.
+// The web server won't work if used "tft.setFont" function.
 // Upload to ESP8266 not reliable.
 //
 // 31-03-2016, ES: First set-up.
@@ -127,19 +127,21 @@
 // 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
 // 26-05-2017, ES: Correction playing from .m3u playlist and LC/UC problem.
 // 31-05-2017, ES: Volume indicator on TFT.
+// 03-01-2018, JG: CHanged the TFT library to ST7735, which doesn't need Adafruit_GFX, 4 button analog control.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 31 May 2017 12:35:00 GMT"
+#define VERSION "1.20 - JG - 03-01-2018"
+//
 // TFT.  Define USETFT if required.
 #define USETFT
+//
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncMqttClient.h>
 #include <SPI.h>
 #if defined ( USETFT )
-#include <Adafruit_GFX.h>
-#include <TFT_ILI9163C.h>
+#include <TFT_ST7735.h>
 #endif
 #include <Ticker.h>
 #include <stdio.h>
@@ -152,29 +154,19 @@ extern "C"
 {
 #include "user_interface.h"
 }
-
-// Definitions for 3 control switches on analog input
+//
+// Definitions for 4 control switches on analog input
 // You can test the analog input values by holding down the switch and select /?analog=1
 // in the web interface. See schematics in the documentation.
-// Switches are programmed as "Goto station 1", "Next station" and "Previous station" respectively.
+// Switches are programmed as "Next station", "Previous station", "Volume down", "Volume up" respectively.
 // Set these values to 2000 if not used or tie analog input to ground.
-#define NUMANA  3
-//#define asw1    252
-//#define asw2    334
-//#define asw3    499
-#define asw1    2000
-#define asw2    2000
-#define asw3    2000
+#define NUMANA  4
+#define asw1    246
+#define asw2    326
+#define asw3    480
+#define asw4    917
 //
 // Color definitions for the TFT screen (if used)
-#define BLACK   0x0000
-#define BLUE    0xF800
-#define RED     0x001F
-#define GREEN   0x07E0
-#define CYAN    GREEN | BLUE
-#define MAGENTA RED | BLUE
-#define YELLOW  RED | GREEN
-#define WHITE   BLUE | RED | GREEN
 // Digital I/O used
 // Pins for VS1053 module
 #define VS1053_CS     5
@@ -258,7 +250,7 @@ AsyncMqttClient  mqttclient ;                              // Client for MQTT su
 IPAddress        mqtt_server_IP ;                          // IP address of MQTT broker
 char             cmd[130] ;                                // Command from MQTT or Serial
 #if defined ( USETFT )
-TFT_ILI9163C     tft = TFT_ILI9163C ( TFT_CS, TFT_DC ) ;
+TFT_ST7735       tft = TFT_ST7735 ( TFT_CS, TFT_DC ) ;
 #endif
 Ticker           tckr ;                                    // For timing 100 msec
 TinyXML          xml;                                      // For XML parser.
@@ -282,7 +274,7 @@ uint8_t*         ringbuf ;                                 // Ringbuffer for VS1
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
 uint16_t         rbrindex = RINGBFSIZ - 1 ;                // Emptypointer in ringbuffer
 uint16_t         rcount = 0 ;                              // Number of bytes in ringbuffer
-uint16_t         analogsw[NUMANA] = { asw1, asw2, asw3 } ; // 3 levels of analog input
+uint16_t         analogsw[NUMANA] = { asw1, asw2, asw3, asw4 } ; // 4 levels of analog input
 uint16_t         analogrest ;                              // Rest value of analog input
 bool             resetreq = false ;                        // Request to reset the ESP8266
 bool             NetworkFound ;                            // True if WiFi network connected
@@ -951,6 +943,7 @@ void timer10sec()
       if ( morethanonce > 10 )                    // Happened too many times?
       {
         dbgprint ( "Going to restart..." ) ;
+        delay ( 2000 ) ;
         ESP.restart() ;                           // Reset the CPU, probably no return
       }
       if ( datamode & ( PLAYLISTDATA |            // In playlist mode?
@@ -998,7 +991,7 @@ uint8_t anagetsw ( uint16_t v )
   int      i ;                                    // Loop control
   int      oldmindist = 1000 ;                    // Detection least difference
   int      newdist ;                              // New found difference
-  uint8_t  sw = 0 ;                               // Number of switch detected (0 or 1..3)
+  uint8_t  sw = 0 ;                               // Number of switch detected (0 or 1..4)
 
   if ( v > analogrest )                           // Inactive level?
   {
@@ -1087,7 +1080,8 @@ void timer100()
   int            newval ;                         // New value of digital input switch
   uint16_t       v ;                              // Analog input value 0..1023
   static uint8_t aoldval = 0 ;                    // Previous value of analog input switch
-  uint8_t        anewval ;                        // New value of analog input switch (0..3)
+  uint8_t        anewval ;                        // New value of analog input switch (0..4)
+  uint8_t        oldvol ;                         // Current volume
 
   if ( ++count10sec == 100  )                     // 10 seconds passed?
   {
@@ -1143,15 +1137,30 @@ void timer100()
         dbgprint ( "Analog button %d pushed, v = %d", anewval, v ) ;
         if ( anewval == 1 )                       // Button 1?
         {
-          ini_block.newpreset = 0 ;               // Yes, goto first preset
+//          ini_block.newpreset = 0 ;               // Yes, goto first preset
+          ini_block.newpreset = currentpreset + 1 ; // Yes, goto next preset
         }
         else if ( anewval == 2 )                  // Button 2?
         {
-          ini_block.newpreset = currentpreset + 1 ; // Yes, goto next preset
+//          ini_block.newpreset = currentpreset + 1 ; // Yes, goto next preset
+          ini_block.newpreset = currentpreset - 1 ; // Yes, goto previous preset
         }
         else if ( anewval == 3 )                  // Button 3?
         {
-          ini_block.newpreset = currentpreset - 1 ; // Yes, goto previous preset
+//          ini_block.newpreset = currentpreset - 1 ; // Yes, goto previous preset
+          oldvol = vs1053player.getVolume() ;      // Get current volume
+          if ( oldvol <= 98 )
+          {
+          ini_block.reqvol = oldvol + 2 ;          // Up by 2
+          }
+        }
+        else if ( anewval == 4 )                  // Button 4?
+        {
+          oldvol = vs1053player.getVolume() ;      // Get current volume
+          if ( oldvol >= 4 )
+          {
+          ini_block.reqvol = oldvol - 2 ;          // Down by 2
+          }
         }
       }
     }
@@ -1174,7 +1183,9 @@ void displayvolume()
   {
     pos = map ( vs1053player.getVolume(), 0, 100, 0, 160 ) ;
   }
-  tft.fillRect ( 0, 126, pos, 2, RED ) ;             // Paint red part
+//  tft.fillRect ( 0, 126, pos, 2, RED ) ;             // Paint red part
+  tft.fillRect ( 0, 126, pos, 2, BLUE ) ;             // Paint blue part
+//  tft.fillRect ( 0, 126, pos, 2, MAGENTA ) ;             // Paint blue part
   tft.fillRect ( pos, 126, 160 - pos, 2, GREEN ) ;   // Paint green part
 #endif
 }
@@ -1185,7 +1196,7 @@ void displayvolume()
 //******************************************************************************************
 // Show a string on the LCD at a specified y-position in a specified color                 *
 //******************************************************************************************
-void displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color )
+void displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color1, uint16_t color2 )
 {
 #if defined ( USETFT )
   char buf [ strlen ( str ) + 1 ] ;             // Need some buffer space
@@ -1193,7 +1204,7 @@ void displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t colo
   strcpy ( buf, str ) ;                         // Make a local copy of the string
   utf8ascii ( buf ) ;                           // Convert possible UTF8
   tft.fillRect ( 0, pos, 160, height, BLACK ) ; // Clear the space for new info
-  tft.setTextColor ( color ) ;                  // Set the requested color
+  tft.setTextColor ( color1, color2 ) ;                  // Set the requested color
   tft.setCursor ( 0, pos ) ;                    // Prepare to show the info
   tft.println ( buf ) ;                         // Show the string
 #endif
@@ -1253,7 +1264,10 @@ void showstreamtitle ( const char *ml, bool full )
     }
     strcpy ( p1, p2 ) ;                         // Shift 2nd part of title 2 or 3 places
   }
-  displayinfo ( streamtitle, 20, 40, CYAN ) ;   // Show title at position 20
+#if defined ( USETFT )
+//  displayinfo ( streamtitle, 20, 40, CYAN, ) ;   // Show title at position 20
+  displayinfo ( streamtitle, 70, 40, CYAN, CYAN ) ;   // Show title at position 20
+#endif
 }
 
 
@@ -1291,7 +1305,11 @@ bool connecttohost()
 
   stop_mp3client() ;                                // Disconnect if still connected
   dbgprint ( "Connect to new host %s", host.c_str() ) ;
-  displayinfo ( "   ** Internet radio **", 0, 20, WHITE ) ;
+
+  #if defined ( USETFT )
+  displayinfo ( "          Mode: Internet radio", 0, 20, WHITE, WHITE ) ; // For TFT_ST7735
+  #endif
+
   datamode = INIT ;                                 // Start default in metamode
   chunked = false ;                                 // Assume not chunked
   if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
@@ -1320,7 +1338,12 @@ bool connecttohost()
   }
   pfs = dbgprint ( "Connect to %s on port %d, extension %s",
                    hostwoext.c_str(), port, extension.c_str() ) ;
-  displayinfo ( pfs, 60, 66, YELLOW ) ;             // Show info at position 60..125
+
+  #if defined ( USETFT )
+//  displayinfo ( pfs, 60, 66, YELLOW ) ;             // Show info at position 60..125
+  displayinfo ( pfs, 20, 60, YELLOW, YELLOW ) ;             // Show info at position 60..125
+  #endif
+
   if ( mp3client.connect ( hostwoext.c_str(), port ) )
   {
     dbgprint ( "Connected to server" ) ;
@@ -1350,7 +1373,10 @@ bool connecttofile()
   String path ;                                           // Full file spec
   char*  p ;                                              // Pointer to filename
 
-  displayinfo ( "   **** MP3 Player ****", 0, 20, WHITE ) ;
+  #if defined ( USETFT )
+  displayinfo ( "          Mode: File Player", 0, 20, WHITE, WHITE ) ;  // For TFT_ST7735
+  #endif
+
   path = host.substring ( 9 ) ;                           // Path, skip the "localhost" part
   mp3file = SPIFFS.open ( path, "r" ) ;                   // Open the file
   if ( !mp3file )
@@ -1360,8 +1386,12 @@ bool connecttofile()
   }
   p = (char*)path.c_str() + 1 ;                           // Point to filename
   showstreamtitle ( p, true ) ;                           // Show the filename as title
-  displayinfo ( "Playing from local file",
-                60, 68, YELLOW ) ;                        // Show Source at position 60
+
+  #if defined ( USETFT )
+//  displayinfo ( "Playing from local file", 60, 68, YELLOW ) ;                        // Show Source at position 60
+  displayinfo ( "Playing from local file", 20, 60, YELLOW, YELLOW ) ;                        // Show Source at position 60
+  #endif
+
   icyname = "" ;                                          // No icy name yet
   chunked = false ;                                       // File not chunked
   return true ;
@@ -1380,22 +1410,30 @@ bool connectwifi()
 
   WiFi.disconnect() ;                                  // After restart the router could
   WiFi.softAPdisconnect(true) ;                        // still keep the old connection
-  WiFi.begin ( ini_block.ssid.c_str(),
-               ini_block.passwd.c_str() ) ;            // Connect to selected SSID
+  WiFi.begin ( ini_block.ssid.c_str(), ini_block.passwd.c_str() ) ;            // Connect to selected SSID
   dbgprint ( "Try WiFi %s", ini_block.ssid.c_str() ) ; // Message to show during WiFi connect
   if (  WiFi.waitForConnectResult() != WL_CONNECTED )  // Try to connect
   {
-    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", NAME, NAME ) ;
-    WiFi.softAP ( NAME, NAME ) ;                       // This ESP will be an AP
-    delay ( 5000 ) ;
-    pfs = dbgprint ( "IP = 192.168.4.1" ) ;            // Address if AP
+    WiFi.softAP ( NAME ) ;                              // This ESP will be an AP, Don't use Secure AP Mode !!!
+    delay ( 3000 ) ;
+    dbgprint ( "WiFi Failed! setting AP mode with name %s.", NAME ) ;
+    pfs = dbgprint ( "IP = %d.%d.%d.%d",
+                   WiFi.softAPIP()[0], WiFi.softAPIP()[1], WiFi.softAPIP()[2], WiFi.softAPIP()[3] ) ;
+    #if defined ( USETFT )
+      tft.println ( "WiFi Failed, Setting AP Mode" ) ;
+      tft.println ( "" ) ;
+      tft.println ( pfs ) ;
+    #endif
     return false ;
   }
+  dbgprint ( "WiFi Connected" ) ;                       // Message to show that WiFi connected
   pfs = dbgprint ( "IP = %d.%d.%d.%d",
                    WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] ) ;
-#if defined ( USETFT )
-  tft.println ( pfs ) ;
-#endif
+  #if defined ( USETFT )
+    tft.println ( "WiFi Connected to AP." ) ;
+    tft.println ( "" ) ;
+    tft.println ( pfs ) ;
+  #endif
   return true ;
 }
 
@@ -1772,6 +1810,28 @@ void setup()
              &XML_callback ) ;
   memset ( &ini_block, 0, sizeof(ini_block) ) ;        // Init ini_block
   ini_block.mqttport = 1883 ;                          // Default port for MQTT
+//
+# if defined ( USETFT )
+  tft.begin() ;                                        // Init TFT interface
+  tft.fillRect ( 0, 0, 160, 128, BLACK ) ;             // Clear screen does not work when rotated
+//  tft.setRotation ( 3 ) ;                              // Use landscape format 180°
+  tft.setRotation ( 1 ) ;                              // Use landscape format 0°
+  tft.clearScreen() ;                                  // Clear screen
+//  tft.setTextSize ( 1 ) ;                              // Small character font
+  tft.setTextScale ( 1 ) ;                             // Default scale for TFT_ST7735
+  tft.setTextColor ( WHITE ) ;                         // Info in white
+  tft.println ( "System starting" ) ;                  // Display the init info
+  tft.println ( "" ) ;
+  tft.println ( "Please wait" ) ;
+  tft.println ( "" ) ;
+  tft.println ( "Version: " VERSION ) ;
+  tft.println ( "" ) ;
+//  tft.println ( VERSION ) ;
+#else
+  pinMode ( BUTTON1, INPUT_PULLUP ) ;                  // Input for control button 1
+  pinMode ( BUTTON3, INPUT_PULLUP ) ;                  // Input for control button 3
+#endif
+//
   SPIFFS.begin() ;                                     // Enable file system
   // Show some info about the SPIFFS
   SPIFFS.info ( fs_info ) ;
@@ -1806,21 +1866,7 @@ void setup()
              ESP.getFreeSketchSpace() ) ;
   pinMode ( BUTTON2, INPUT_PULLUP ) ;                  // Input for control button 2
   vs1053player.begin() ;                               // Initialize VS1053 player
-# if defined ( USETFT )
-  tft.begin() ;                                        // Init TFT interface
-  tft.fillRect ( 0, 0, 160, 128, BLACK ) ;             // Clear screen does not work when rotated
-  tft.setRotation ( 3 ) ;                              // Use landscape format
-  tft.clearScreen() ;                                  // Clear screen
-  tft.setTextSize ( 1 ) ;                              // Small character font
-  tft.setTextColor ( WHITE ) ;                         // Info in white
-  tft.println ( "Starting" ) ;
-  tft.println ( "Version:" ) ;
-  tft.println ( VERSION ) ;
-#else
-  pinMode ( BUTTON1, INPUT_PULLUP ) ;                  // Input for control button 1
-  pinMode ( BUTTON3, INPUT_PULLUP ) ;                  // Input for control button 3
-#endif
-  delay(10);
+  delay(100);
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
   tckr.attach ( 0.100, timer100 ) ;                    // Every 100 msec
   dbgprint ( "Selected network: %-25s", ini_block.ssid.c_str() ) ;
@@ -1830,12 +1876,12 @@ void setup()
   cmdserver.on ( "/", handleCmd ) ;                    // Handle startpage
   cmdserver.onNotFound ( handleFS ) ;                  // Handle file from FS
   cmdserver.onFileUpload ( handleFileUpload ) ;        // Handle file uploads
-  cmdserver.begin() ;
+  cmdserver.begin() ;                                  // Start Web Server
   if ( NetworkFound )                                  // OTA and MQTT only if Wifi network found
   {
-    ArduinoOTA.setHostname ( NAME ) ;                  // Set the hostname
-    ArduinoOTA.onStart ( otastart ) ;
-    ArduinoOTA.begin() ;                               // Allow update over the air
+   ArduinoOTA.setHostname ( NAME ) ;                   // Set the hostname
+   ArduinoOTA.onStart ( otastart ) ;
+   ArduinoOTA.begin() ;                                // Allow update over the air
     if ( ini_block.mqttbroker.length() )               // Broker specified?
     {
       // Initialize the MQTT client
@@ -1864,7 +1910,7 @@ void setup()
   {
     currentpreset = ini_block.newpreset ;              // No network: do not start radio
   }
-  delay ( 1000 ) ;                                     // Show IP for a wile
+  delay ( 5000 ) ;                                     // Show IP for a wile
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
 }
 
@@ -2178,7 +2224,7 @@ void loop()
   }
   if ( resetreq )                                       // Reset requested?
   {
-    delay ( 1000 ) ;                                    // Yes, wait some time
+    delay ( 2000 ) ;                                    // Yes, wait some time
     ESP.restart() ;                                     // Reboot
   }
   if ( muteflag )
@@ -2388,8 +2434,16 @@ void handlebyte ( uint8_t b, bool force )
         {
           icyname = metaline.substring(9) ;            // Get station name
           icyname.trim() ;                             // Remove leading and trailing spaces
-          displayinfo ( icyname.c_str(), 60, 68,
-                        YELLOW ) ;                     // Show station name at position 60
+
+        #if defined ( USETFT )
+//          tft.setTextSize ( 2 ) ;                               // Medium character font
+          tft.setTextScale ( 2 ) ;                             // Default scale for TFT_ST7735
+//          displayinfo ( icyname.c_str(), 60, 68, YELLOW ) ;   // Show station name at position 60
+          displayinfo ( icyname.c_str(), 20, 60, MAGENTA, MAGENTA ) ;     // Show station name at position 20
+//          tft.setTextSize ( 1 ) ;                               // Small character font
+          tft.setTextScale ( 1 ) ;                             // Default scale for TFT_ST7735
+        #endif
+
         }
         else if ( lcml.startsWith ( "transfer-encoding:" ) )
         {
