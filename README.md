@@ -30,6 +30,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 18-apr-2018: Work-around for wifi.connected() bug.
 - 31-may-2017: Volume indicator on display.
 - 26-may-2017: Correction playing .m3u playlists.
 - 24-may-2017: Correction. Do not skip first part of .mp3 file.
