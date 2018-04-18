@@ -127,9 +127,11 @@
 // 24-05-2017, ES: Correction. Do not skip first part of .mp3 file.
 // 26-05-2017, ES: Correction playing from .m3u playlist and LC/UC problem.
 // 31-05-2017, ES: Volume indicator on TFT.
+// 02-02-2018, ES: Force 802.11N connection.
+// 18-04-2018, ES: Workaround for not working wifi.connected().
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 31 May 2017 12:35:00 GMT"
+#define VERSION "Wed, 18 Apr 2018 10:42:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -174,7 +176,6 @@ extern "C"
 #define CYAN    GREEN | BLUE
 #define MAGENTA RED | BLUE
 #define YELLOW  RED | GREEN
-#define WHITE   BLUE | RED | GREEN
 // Digital I/O used
 // Pins for VS1053 module
 #define VS1053_CS     5
@@ -218,6 +219,12 @@ char*  analyzeCmd ( const char* par, const char* val ) ;
 String chomp ( String str ) ;
 void   publishIP() ;
 String xmlparse ( String mount ) ;
+void   put_eeprom_station ( int index, const char *entry ) ;
+char*  get_eeprom_station ( int index ) ;
+int    find_eeprom_station ( const char *search_entry ) ;
+int    find_free_eeprom_entry() ;
+bool   connecttohost() ;
+
 
 //
 //******************************************************************************************
@@ -225,7 +232,7 @@ String xmlparse ( String mount ) ;
 //******************************************************************************************
 // There is a block ini-data that contains some configuration.  Configuration data is      *
 // saved in the SPIFFS file radio.ini by the webinterface.  On restart the new data will   *
-// de read from this file.                                                                 *
+// be read from this file.                                                                 *
 // Items in ini_block can be changed by commands from webserver/MQTT/Serial.               *
 //******************************************************************************************
 struct ini_struct
@@ -252,7 +259,7 @@ enum datamode_t { INIT = 1, HEADER = 2, DATA = 4,
 // Global variables
 int              DEBUG = 1 ;
 ini_struct       ini_block ;                               // Holds configurable data
-WiFiClient       mp3client ;                               // An instance of the mp3 client
+WiFiClient       *mp3client = NULL ;                       // An instance of the mp3 client
 AsyncWebServer   cmdserver ( 80 ) ;                        // Instance of embedded webserver on port 80
 AsyncMqttClient  mqttclient ;                              // Client for MQTT subscriber
 IPAddress        mqtt_server_IP ;                          // IP address of MQTT broker
@@ -1264,20 +1271,24 @@ void showstreamtitle ( const char *ml, bool full )
 //******************************************************************************************
 void stop_mp3client ()
 {
-  while ( mp3client.connected() )
+  if ( mp3client )
   {
-    dbgprint ( "Stopping client" ) ;               // Stop connection to host
-    mp3client.flush() ;
-    mp3client.stop() ;
-    delay ( 500 ) ;
+    if ( mp3client->connected() )                    // Need to stop client?
+    {
+      dbgprint ( "Stopping client" ) ;               // Stop connection to host
+      mp3client->flush() ;
+      mp3client->stop() ;
+      delay ( 500 ) ;
+    }
+    delete ( mp3client ) ;
+    mp3client = NULL ;
   }
-  mp3client.flush() ;                              // Flush stream client
-  mp3client.stop() ;                               // Stop stream client
 }
 
 
 //******************************************************************************************
 //                            C O N N E C T T O H O S T                                    *
+
 //******************************************************************************************
 // Connect to the Internet radio server specified by newpreset.                            *
 //******************************************************************************************
@@ -1321,12 +1332,13 @@ bool connecttohost()
   pfs = dbgprint ( "Connect to %s on port %d, extension %s",
                    hostwoext.c_str(), port, extension.c_str() ) ;
   displayinfo ( pfs, 60, 66, YELLOW ) ;             // Show info at position 60..125
-  if ( mp3client.connect ( hostwoext.c_str(), port ) )
+  mp3client = new WiFiClient() ;
+  if ( mp3client->connect ( hostwoext.c_str(), port ) )
   {
     dbgprint ( "Connected to server" ) ;
     // This will send the request to the server. Request metadata.
-    mp3client.print ( String ( "GET " ) +
-                      extension +
+    mp3client->print ( String ( "GET " ) +
+                       extension +
                       String ( " HTTP/1.1\r\n" ) +
                       String ( "Host: " ) +
                       hostwoext +
@@ -1788,12 +1800,13 @@ void setup()
     dbgprint ( "%-32s - %7d",                          // Show name and size
                filename.c_str(), f.size() ) ;
   }
-  mk_lsan() ;                                          // Make al list of acceptable networks in ini file.
+  mk_lsan() ;                                          // Make a list of acceptable networks in ini file.
   listNetworks() ;                                     // Search for WiFi networks
   readinifile() ;                                      // Read .ini file
   getpresets() ;                                       // Get the presets from .ini-file
+  WiFi.setPhyMode ( WIFI_PHY_MODE_11N ) ;              // Force 802.11N connection
   WiFi.persistent ( false ) ;                          // Do not save SSID and password
-  WiFi.disconnect() ;                                  // After restart the router could still keep the old connection
+  WiFi.disconnect() ;                                  // The router may keep the old connection
   WiFi.mode ( WIFI_STA ) ;                             // This ESP is a station
   wifi_station_set_hostname ( (char*)NAME ) ;
   SPI.begin() ;                                        // Init SPI bus
@@ -1934,21 +1947,22 @@ String xmlparse ( String mount )
   sprintf ( tmpstr, xmlget, mount.c_str() ) ;
   dbgprint ( "%s", tmpstr ) ;
   // Connect to XML stream.
-  if ( mp3client.connect ( xmlhost, xmlport ) ) {
+  mp3client = new WiFiClient() ;
+  if ( mp3client->connect ( xmlhost, xmlport ) ) {
     dbgprint ( "Connected!" ) ;
-    mp3client.print ( String ( tmpstr ) + " HTTP/1.1\r\n"
-                      "Host: " + xmlhost + "\r\n"
-                      "User-Agent: Mozilla/5.0\r\n"
-                      "Connection: close\r\n\r\n" ) ;
+    mp3client->print ( String ( tmpstr ) + " HTTP/1.1\r\n"
+                       "Host: " + xmlhost + "\r\n"
+                       "User-Agent: Mozilla/5.0\r\n"
+                       "Connection: close\r\n\r\n" ) ;
     // Check for XML Data.
     while ( true )
     {
-      if ( mp3client.available() )
+      if ( mp3client->available() )
       {
-        char c = mp3client.read() ;
+        char c = mp3client->read() ;
         if ( c == '<' )
         {
-          c = mp3client.read() ;
+          c = mp3client->read() ;
           if ( c == '?' )
           {
             xml.processChar ( '<' ) ;
@@ -1963,9 +1977,9 @@ String xmlparse ( String mount )
     // Process XML Data.
     while (true) 
     {
-      if ( mp3client.available() )
+      if ( mp3client->available() )
       {
-        c = mp3client.read() ;
+        c = mp3client->read() ;
         xml.processChar ( c ) ;
         if ( xmlTag != "" )
         {
@@ -2011,6 +2025,7 @@ String xmlparse ( String mount )
       dbgprint ( "Found: %s", tmpstr ) ;
     }
     dbgprint ( "Closing XML connection." ) ;
+    stop_mp3client () ;
   }
   else
   {
@@ -2036,8 +2051,7 @@ String xmlparse ( String mount )
 void loop()
 {
   uint32_t    maxfilechunk  ;                           // Max number of bytes to read from
-  // stream or file
-
+                                                        // stream or file
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |              // Test op playing
                     METADATA | PLAYLISTINIT |
@@ -2059,14 +2073,14 @@ void loop()
     }
     else
     {
-      maxfilechunk = mp3client.available() ;           // Bytes available from mp3 server
+      maxfilechunk = mp3client->available() ;          // Bytes available from mp3 server
       if ( maxfilechunk > 1024 )                       // Reduce byte count for this loop()
       {
         maxfilechunk = 1024 ;
       }
       while ( ringspace() && maxfilechunk-- )
       {
-        putring ( mp3client.read() ) ;                 // Yes, store one byte in ringbuffer
+        putring ( mp3client->read() ) ;                // Yes, store one byte in ringbuffer
         yield() ;
       }
     }
@@ -2927,7 +2941,7 @@ char* analyzeCmd ( const char* par, const char* val )
   else if ( argument == "test" )                      // Test command
   {
     sprintf ( reply, "Free memory is %d, ringbuf %d, stream %d",
-              system_get_free_heap_size(), rcount, mp3client.available() ) ;
+              system_get_free_heap_size(), rcount, mp3client->available() ) ;
   }
   // Commands for bass/treble control
   else if ( argument.startsWith ( "tone" ) )          // Tone command
