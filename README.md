@@ -4,7 +4,7 @@ This is a PlatformIO library for the generic **[VS1053 Breakout](http://www.vlsi
 A powerful Ogg Vorbis / MP3 / AAC / WMA / FLAC / MIDI Audio Codec chip.<br/>
 Read more: [http://www.vlsi.fi/en/products/vs1053.html](http://www.vlsi.fi/en/products/vs1053.html).
 
-The library may be base to build your own webradio player or different audio device.
+The library may be a base to build your own webradio player or different audio device.
 
 Designed specifically to work with the **Espressif ESP8266** and **ESP32** boards. 
 
