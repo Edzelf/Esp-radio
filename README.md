@@ -8,12 +8,18 @@ The library may be a base to build your own webradio player or different audio d
 
 Designed specifically to work with the **Espressif ESP8266** and **ESP32** boards. 
 
-There are currently two methods to program the ESP boards: the ESP-IDF and the ESP8266/ESP32 arduino Core.
+Don't hesitate to create issues or pull requests if you want to improve ESP_VS1053_Library!
+
+## Introduction
+
+#### How to use the library?
+
+There are currently two official methods to program the ESP boards: the ESP-IDF and the ESP8266/ESP32 arduino Core.
 The library was created to work with the **arduino Core**.
 
 The ESP8266 is the most popular Wi-Fi MCU (known also as ESP12, NodeMCU, WeMos, ...). 
 
-Why PlatformIO?
+#### Why PlatformIO?
 
 As mentioned in first paragraph, the library was prepared to be used with PlatformIO, which is kind of dependency management tool. It is highly recommended environment to be used while developing your electronics/IoT projects. The build automation lets you deal much easier while working with the project. It will help you to have all project dependencies simply resolved out of the box. What more, it provides very good IDE integration (any of popular), debugging possibility, remote unit testing and firmware updates. [Learn more about PlatformIO here](https://platformio.org/).
 
