@@ -56,6 +56,7 @@ player.playChunk(helloMp3, sizeof(helloMp3));
 ```
     
 For complete code please check [examples](https://github.com/baldram/ESP_VS1053_Library/tree/master/examples) folder.
+The example plays the sound like this [(click to listen to the sound)](https://drive.google.com/open?id=1Mm4dc-sM7KjZcKmv5g1nwhe3-qtm7yUl) every three minutes.
 
 Please note that `player.switchToMp3Mode()` is an optional switch. Some of VS1053 modules will start up in MIDI mode. The result is no audio when playing MP3.
 You can modify the board, but there is a more elegant way without soldering. For more details please read a discussion here: [http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773](http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773).
