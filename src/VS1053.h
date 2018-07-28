@@ -36,6 +36,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include "ConsoleLogger.h"
 
 class VS1053 {
 private:
@@ -109,7 +110,7 @@ public:
     // Constructor.  Only sets pin values.  Doesn't touch the chip.  Be sure to call begin()!
     VS1053(uint8_t _cs_pin, uint8_t _dcs_pin, uint8_t _dreq_pin);
 
-    bool begin();                               // Begin operation.  Sets pins correctly,
+    void begin();                               // Begin operation.  Sets pins correctly,
                                                 // and prepares SPI bus.
     void startSong();                           // Prepare to start playing. Call this each
                                                 // time a new song starts.

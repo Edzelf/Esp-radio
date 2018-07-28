@@ -62,23 +62,46 @@ Please note that `player.switchToMp3Mode()` is an optional switch. Some of VS105
 You can modify the board, but there is a more elegant way without soldering. For more details please read a discussion here: [http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773](http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773).
 <br />No side effects for boards which do not need this switch, so you can call it just in case.
 
-#### Third-party dependencies
+#### Logging / debugging
 
-The library use also a third-party logging framework [ArduinoLog](http://platformio.org/lib/show/1532/ArduinoLog/) for debugging purposes.<br /> 
-This dependency will be resolved automatically.
+The library uses ESP Arduino framework built in logger (Arduino core for [ESP32](https://github.com/espressif/arduino-esp32/issues/893#issuecomment-348069135) and [ESP8266](https://github.com/esp8266/Arduino/blob/master/doc/Troubleshooting/debugging.rst#debug-level)).<br /> 
 
-Then you are able to include and use this library from your code (it offers several log levels):
+To see debug messages please add build flags to your `platformio.ini` as below (depending on platform):
+
+- for ESP8266:
+
+`build_flags = -D DEBUG_ESP_PORT=Serial`
+
+- for ESP32:
+
+`build_flags = -DCORE_DEBUG_LEVEL=ARDUHAL_LOG_LEVEL_DEBUG`
+
+The Serial Interface needs to be initialized in the `setup()`.
 
 ```
-#include <ArduinoLog.h>
+void setup() {
+    Serial.begin(115200);
+}
 ```
-...
-```
-Serial.begin(9600);
-while(!Serial && !Serial.available()){}
-Log.begin(LOG_LEVEL_VERBOSE, &Serial);
+Now if something is wrong, you'll see the output like below (from ESP32):
 
-Log.notice("Hello, this is a debug message!");
+```
+[I][main.cpp:117] setup(): Hello # VS1053!
+[D][VS1053.cpp:156] begin(): 
+[D][VS1053.cpp:157] begin(): Reset VS1053...
+[D][VS1053.cpp:161] begin(): End reset VS1053...
+[D][VS1053.cpp:119] testComm(): VS1053 not properly installed!
+```
+In successful case it would start with something like this:
+
+```
+[I][main.cpp:117] setup(): Hello # VS1053!
+[D][VS1053.cpp:156] begin(): 
+[D][VS1053.cpp:157] begin(): Reset VS1053...
+[D][VS1053.cpp:161] begin(): End reset VS1053...
+[D][VS1053.cpp:132] testComm(): Slow SPI,Testing VS1053 read/write registers...
+[D][VS1053.cpp:132] testComm(): Fast SPI, Testing VS1053 read/write registers again...
+[D][VS1053.cpp:183] begin(): endFillByte is 0
 ```
 
 ## Example wiring
