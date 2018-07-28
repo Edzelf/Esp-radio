@@ -131,7 +131,7 @@ public:
         return (digitalRead(dreq_pin) == HIGH);
     }
 
-    void switchToMp3Mode(void);
+    void switchToMp3Mode();
 };
 
 #endif

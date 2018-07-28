@@ -52,7 +52,7 @@ Then initialize the player and use as in following example:
 player.begin();
 player.setVolume(VOLUME);
 player.switchToMp3Mode();
-player.playChunk(helloMp3, sizeof(helloMp3));
+player.playChunk(sampleMp3, sizeof(sampleMp3));
 ```
     
 For complete code please check [examples](https://github.com/baldram/ESP_VS1053_Library/tree/master/examples) folder.

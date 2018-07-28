@@ -40,9 +40,9 @@
 // This ESP_VS1053_Library
 #include <VS1053.h>
 
-// Please find helloMp3.h file here:
-//   github.com/baldram/ESP_VS1053_Library/blob/master/examples/Mp3PlayerDemo/helloMp3.h
-#include "helloMp3.h"
+// Please find SampleMp3.h file here:
+//   github.com/baldram/ESP_VS1053_Library/blob/master/examples/Mp3PlayerDemo/SampleMp3.h
+#include "SampleMp3.h"
 
 // Wiring of VS1053 board (SPI connected in a standard way)
 #define VS1053_CS     D1
@@ -70,6 +70,6 @@ void loop() {
     Serial.println("Playing sound... ");
   
     // play mp3 flow each 3s
-    player.playChunk(helloMp3, sizeof(helloMp3));
+    player.playChunk(sampleMp3, sizeof(sampleMp3));
     delay(3000);
 }
