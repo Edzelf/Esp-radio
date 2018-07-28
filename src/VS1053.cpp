@@ -243,6 +243,7 @@ void VS1053::stopSong() {
 }
 
 void VS1053::softReset() {
+    LOG("Performing soft-reset\n");
     write_register(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_RESET));
     delay(10);
     await_data_request();
@@ -276,5 +277,6 @@ void VS1053::switchToMp3Mode() {
     wram_write(0xC017, 3); // GPIO DDR = 3
     wram_write(0xC019, 0); // GPIO ODATA = 0
     delay(100);
+    LOG("Switched to mp3 mode\n");
     softReset();
 }

@@ -3,7 +3,7 @@
  * https://github.com/baldram/ESP_VS1053_Library
  * If you like this project, please add a star.
  *
- * Copyright (C) 2017 Marcin Szalomski
+ * Copyright (C) 2018 Marcin Szalomski
  * Licensed under GNU GPL v3
  */
 unsigned char helloMp3[] = {

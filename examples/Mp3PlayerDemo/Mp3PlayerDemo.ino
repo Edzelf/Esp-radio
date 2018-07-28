@@ -3,7 +3,7 @@
   https://github.com/baldram/ESP_VS1053_Library
   If you like this project, please add a star.
 
-  Copyright (C) 2017 Marcin Szalomski (github.com/baldram)
+  Copyright (C) 2018 Marcin Szalomski (github.com/baldram)
   Licensed under GNU GPL v3
 
   The circuit (example wiring for ESP8266 based board like eg. LoLin NodeMCU V3):
@@ -41,7 +41,7 @@
 #include <VS1053.h>
 
 // Please find helloMp3.h file here:
-//   github.com/baldram/ESP_VS1053_Library/blob/master/examples/SimpleMp3Player/helloMp3.h
+//   github.com/baldram/ESP_VS1053_Library/blob/master/examples/Mp3PlayerDemo/helloMp3.h
 #include "helloMp3.h"
 
 // Wiring of VS1053 board (SPI connected in a standard way)
@@ -54,9 +54,12 @@
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
 
 void setup () {
+    Serial.begin(115200);
+  
     // initialize SPI
     SPI.begin();
 
+    Serial.println("Hello VS1053!\n");
     // initialize a player
     player.begin();
     player.switchToMp3Mode(); // optional, some boards require this
@@ -64,6 +67,8 @@ void setup () {
 }
 
 void loop() {
+    Serial.println("Playing sound... ");
+  
     // play mp3 flow each 3s
     player.playChunk(helloMp3, sizeof(helloMp3));
     delay(3000);
