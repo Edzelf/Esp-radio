@@ -138,6 +138,17 @@ $ platformio init --ide=clion
 Then please import the project and run the PIO task: `PLATFORMIO_REBUILD_PROJECT_INDEX`.<br />
 Read more here: [PlatformIO & CLion integration](http://docs.platformio.org/en/latest/ide/clion.html).
 
+## Additional hints
+
+If you think how to convert the mp3 file into C header file, please find a [thread here](https://www.avrfreaks.net/comment/884247#comment-884247). It's as simple as calling:
+
+`xxd -i your-sound.mp3 ready-to-use-c-header.h`
+
+The `xxd` is available for any platform like Linux or Windows (distributed with Vim editor).
+It will produce something like in the example [here](https://github.com/baldram/ESP_VS1053_Library/blob/master/examples/Mp3PlayerDemo/SampleMp3.h).
+Of course as the file will be a part of firmware, it should be small enough according to limited microcontroller's resources The memory is at a premium ;-) I would suggest to use mp3 instead of wave, convert file from stereo to mono and use lower MP3 bit rate if possible (like 112kbps or less instead of 320kbps). Please also find [additional hints here](https://github.com/baldram/ESP_VS1053_Library/issues/18#issuecomment-408984920). 
+
+
 ## Credits
 
 Based on library/applications:
