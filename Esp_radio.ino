@@ -1,5 +1,5 @@
 //******************************************************************************************
-//*  Esp_radio -- Webradio receiver for ESP8266, 1.8 color display and VS1053 MP3 module,  *
+//*  Esp_radio -- Webradio receiver for ESP8266, (color) display and VS1053 MP3 module,    *
 //*               by Ed Smallenburg (ed@smallenburg.nl)                                    *
 //*  With ESP8266 running at 80 MHz, it is capable of handling up to 256 kb bitrate.       *
 //*  With ESP8266 running at 160 MHz, it is capable of handling up to 320 kb bitrate.      *
@@ -129,9 +129,10 @@
 // 31-05-2017, ES: Volume indicator on TFT.
 // 02-02-2018, ES: Force 802.11N connection.
 // 18-04-2018, ES: Workaround for not working wifi.connected().
+// 05-10-2018, ES: Fixed exception if no network was found.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Wed, 18 Apr 2018 10:42:00 GMT"
+#define VERSION "Fri, 05 Oct 2018 09:30:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -204,7 +205,7 @@ extern "C"
 //******************************************************************************************
 // Forward declaration of various functions                                                *
 //******************************************************************************************
-void   displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color ) ;
+//void   displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color ) ;
 void   showstreamtitle ( const char* ml, bool full = false ) ;
 void   handlebyte ( uint8_t b, bool force = false ) ;
 void   handlebyte_ch ( uint8_t b, bool force = false ) ;
@@ -895,6 +896,7 @@ void listNetworks()
   int         i ;                // Loop control
   String      sassid ;           // Search string in anetworks
 
+  ini_block.ssid = String ( "none" ) ;                   // No selceted network yet
   // scan for nearby networks:
   dbgprint ( "* Scan Networks *" ) ;
   int numSsid = WiFi.scanNetworks() ;
@@ -1110,7 +1112,7 @@ void timer100()
       if ( newval == LOW )                        // Button pushed?
       {
         ini_block.newpreset = currentpreset + 1 ; // Yes, goto next preset station
-        dbgprint ( "Digital button 2 pushed" ) ;
+        //dbgprint ( "Digital button 2 pushed" ) ;
       }
       return ;
     }
@@ -1122,7 +1124,7 @@ void timer100()
       if ( newval == LOW )                        // Button pushed?
       {
         ini_block.newpreset = 0 ;                 // Yes, goto first preset station
-        dbgprint ( "Digital button 1 pushed" ) ;
+        //dbgprint ( "Digital button 1 pushed" ) ;
       }
       return ;
     }
@@ -1135,7 +1137,7 @@ void timer100()
       if ( newval == LOW )                        // Button pushed?
       {
         ini_block.newpreset = currentpreset - 1 ; // Yes, goto previous preset station
-        dbgprint ( "Digital button 3 pushed" ) ;
+        //dbgprint ( "Digital button 3 pushed" ) ;
       }
       return ;
     }
@@ -1147,7 +1149,7 @@ void timer100()
       aoldval = anewval ;                         // Remember value for change detection
       if ( anewval != 0 )                         // Button pushed?
       {
-        dbgprint ( "Analog button %d pushed, v = %d", anewval, v ) ;
+        //dbgprint ( "Analog button %d pushed, v = %d", anewval, v ) ;
         if ( anewval == 1 )                       // Button 1?
         {
           ini_block.newpreset = 0 ;               // Yes, goto first preset
@@ -1192,9 +1194,9 @@ void displayvolume()
 //******************************************************************************************
 // Show a string on the LCD at a specified y-position in a specified color                 *
 //******************************************************************************************
+#if defined ( USETFT )
 void displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t color )
 {
-#if defined ( USETFT )
   char buf [ strlen ( str ) + 1 ] ;             // Need some buffer space
   
   strcpy ( buf, str ) ;                         // Make a local copy of the string
@@ -1203,8 +1205,10 @@ void displayinfo ( const char* str, uint16_t pos, uint16_t height, uint16_t colo
   tft.setTextColor ( color ) ;                  // Set the requested color
   tft.setCursor ( 0, pos ) ;                    // Prepare to show the info
   tft.println ( buf ) ;                         // Show the string
-#endif
 }
+#else
+#define displayinfo(a,b,c,d)                    // Empty declaration
+#endif
 
 
 //******************************************************************************************
@@ -1819,7 +1823,7 @@ void setup()
              ESP.getFreeSketchSpace() ) ;
   pinMode ( BUTTON2, INPUT_PULLUP ) ;                  // Input for control button 2
   vs1053player.begin() ;                               // Initialize VS1053 player
-# if defined ( USETFT )
+#if defined ( USETFT )
   tft.begin() ;                                        // Init TFT interface
   tft.fillRect ( 0, 0, 160, 128, BLACK ) ;             // Clear screen does not work when rotated
   tft.setRotation ( 3 ) ;                              // Use landscape format
