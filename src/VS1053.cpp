@@ -280,3 +280,14 @@ void VS1053::switchToMp3Mode() {
     LOG("Switched to mp3 mode\n");
     softReset();
 }
+
+/**
+ * A lightweight method to check if VS1053 is correctly wired up (power supply and connection to SPI interface).
+ *
+ * @return true if the chip is wired up correctly
+ */
+bool VS1053::isChipConnected() {
+    uint16_t status = read_register(SCI_STATUS);
+
+    return !(status == 0 || status == 0xFFFF);
+}

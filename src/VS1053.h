@@ -47,6 +47,7 @@ private:
     const uint8_t vs1053_chunk_size = 32;
     // SCI Register
     const uint8_t SCI_MODE = 0x0;
+    const uint8_t SCI_STATUS = 0x1;
     const uint8_t SCI_BASS = 0x2;
     const uint8_t SCI_CLOCKF = 0x3;
     const uint8_t SCI_AUDATA = 0x5;
@@ -132,6 +133,8 @@ public:
     }
 
     void switchToMp3Mode();
+
+    bool isChipConnected();
 };
 
 #endif
