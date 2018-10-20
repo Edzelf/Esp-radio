@@ -191,12 +191,10 @@ void VS1053::setVolume(uint8_t vol) {
     // Input value is 0..100.  100 is the loudest.
     uint16_t value; // Value to send to SCI_VOL
 
-    if (vol != curvol) {
-        curvol = vol;                         // Save for later use
-        value = map(vol, 0, 100, 0xFF, 0x00); // 0..100% to one channel
-        value = (value << 8) | value;
-        write_register(SCI_VOL, value); // Volume left and right
-    }
+    curvol = vol;                         // Save for later use
+    value = map(vol, 0, 100, 0xFF, 0x00); // 0..100% to one channel
+    value = (value << 8) | value;
+    write_register(SCI_VOL, value); // Volume left and right
 }
 
 void VS1053::setTone(uint8_t *rtone) { // Set bass/treble (4 nibbles)
