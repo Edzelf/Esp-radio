@@ -19,6 +19,7 @@
 // A library for the VS1053 (for ESP8266) is not available (or not easy to find).  Therefore
 // a class for this module is derived from the maniacbug library and integrated in this sketch.
 //
+// Compiling: Set SPIFS to 3 MB.  Set IwIP variant to "V1.4 Higher Bandwidth".
 // See http://www.internet-radio.com for suitable stations.  Add the stations of your choice
 // to the .ini-file.
 //
@@ -130,9 +131,10 @@
 // 02-02-2018, ES: Force 802.11N connection.
 // 18-04-2018, ES: Workaround for not working wifi.connected().
 // 05-10-2018, ES: Fixed exception if no network was found.
+// 23-04-2018, ES: Check BASS setting.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Fri, 05 Oct 2018 09:30:00 GMT"
+#define VERSION "Tue, 23 Apr 2019 09:10:00 GMT"
 // TFT.  Define USETFT if required.
 #define USETFT
 #include <ESP8266WiFi.h>
@@ -220,10 +222,6 @@ char*  analyzeCmd ( const char* par, const char* val ) ;
 String chomp ( String str ) ;
 void   publishIP() ;
 String xmlparse ( String mount ) ;
-void   put_eeprom_station ( int index, const char *entry ) ;
-char*  get_eeprom_station ( int index ) ;
-int    find_eeprom_station ( const char *search_entry ) ;
-int    find_free_eeprom_entry() ;
 bool   connecttohost() ;
 
 
@@ -433,6 +431,7 @@ class VS1053
     {
       return ( digitalRead ( dreq_pin ) == HIGH ) ;
     }
+    void     AdjustRate ( long ppm2 ) ;                  // Fine tune the datarate
 } ;
 
 //******************************************************************************************
@@ -636,7 +635,9 @@ void VS1053::setTone ( uint8_t *rtone )                 // Set bass/treble (4 ni
   {
     value = ( value << 4 ) | rtone[i] ;                 // Shift next nibble in
   }
-  write_register ( SCI_BASS, value ) ;                  // Volume left and right
+  write_register ( SCI_BASS, value ) ;                  // Tone settings
+  value = read_register ( SCI_BASS ) ;                  // Read back
+  dbgprint ( "BASS settings is %04X", value ) ;         // Print for TEST
 }
 
 uint8_t VS1053::getVolume()                             // Get the currenet volume setting.
@@ -702,6 +703,19 @@ void VS1053::printDetails ( const char *header )
     dbgprint ( "%3X - %5X", i, regbuf[i] ) ;
   }
 }
+
+void VS1053::AdjustRate ( long ppm2 )
+{
+  write_register ( SCI_WRAMADDR, 0x1e07 ) ;
+  write_register ( SCI_WRAM,     ppm2 ) ;
+  write_register ( SCI_WRAM,     ppm2 >> 16 ) ;
+  // oldClock4KHz = 0 forces  adjustment calculation when rate checked.
+  write_register ( SCI_WRAMADDR, 0x5b1c ) ;
+  write_register ( SCI_WRAM,     0 ) ;
+  // Write to AUDATA or CLOCKF checks rate and recalculates adjustment.
+  write_register ( SCI_AUDATA,   read_register ( SCI_AUDATA ) ) ;
+}
+
 
 // The object for the MP3 player
 VS1053 vs1053player (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
@@ -1177,14 +1191,14 @@ void displayvolume()
 {
 #if defined ( USETFT )
   static uint8_t oldvol = 0 ;                        // Previous volume
-  uint8_t        pos ;                               // Positon of volume indicator
+  uint8_t pos ;                                      // Positon of volume indicator
 
   if ( vs1053player.getVolume() != oldvol )
   {
     pos = map ( vs1053player.getVolume(), 0, 100, 0, 160 ) ;
+    tft.fillRect ( 0, 126, pos, 2, RED ) ;             // Paint red part
+    tft.fillRect ( pos, 126, 160 - pos, 2, GREEN ) ;   // Paint green part
   }
-  tft.fillRect ( 0, 126, pos, 2, RED ) ;             // Paint red part
-  tft.fillRect ( pos, 126, 160 - pos, 2, GREEN ) ;   // Paint green part
 #endif
 }
 
@@ -1881,7 +1895,7 @@ void setup()
   {
     currentpreset = ini_block.newpreset ;              // No network: do not start radio
   }
-  delay ( 1000 ) ;                                     // Show IP for a wile
+  delay ( 1000 ) ;                                     // Show IP for a while
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
 }
 
@@ -2804,7 +2818,7 @@ char* analyzeCmd ( const char* par, const char* val )
 
   strcpy ( reply, "Command accepted" ) ;              // Default reply
   argument = chomp ( par ) ;                          // Get the argument
-  if ( argument.length() == 0 )                       // Lege commandline (comment)?
+  if ( argument.length() == 0 )                       // Empty commandline (comment)?
   {
     return reply ;                                    // Ignore
   }
@@ -2969,6 +2983,10 @@ char* analyzeCmd ( const char* par, const char* val )
     reqtone = true ;                                  // Set change request
     sprintf ( reply, "Parameter for bass/treble %s set to %d",
               argument.c_str(), ivalue ) ;
+  }
+  else if ( argument == "rate" )                      // Rate command?
+  {
+    vs1053player.AdjustRate ( ivalue ) ;              // Yes, adjust
   }
   else if ( argument.startsWith ( "mqtt" ) )          // Parameter fo MQTT?
   {
