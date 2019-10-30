@@ -7,19 +7,19 @@
   Licensed under GNU GPL v3
 
   The circuit (example wiring for ESP8266 based board like eg. LoLin NodeMCU V3):
-  ---------------------
-  | VS1053  | ESP8266 |
-  ---------------------
-  |   SCK   |   D5    |
-  |   MISO  |   D6    |
-  |   MOSI  |   D7    |
-  |   XRST  |   RST   |
-  |   CS    |   D1    |
-  |   DCS   |   D0    |
-  |   DREQ  |   D3    |
-  |   5V    |   VU    |
-  |   GND   |   G     |
-  ---------------------
+  --------------------------------
+  | VS1053  | ESP8266 |  ESP32   |
+  --------------------------------
+  |   SCK   |   D5    |   IO18   |
+  |   MISO  |   D6    |   IO19   |
+  |   MOSI  |   D7    |   IO23   |
+  |   XRST  |   RST   |   EN     |
+  |   CS    |   D1    |   IO5    |
+  |   DCS   |   D0    |   IO16   |
+  |   DREQ  |   D3    |   IO4    |
+  |   5V    |   5V    |   5V     |
+  |   GND   |   GND   |   GND    |
+  --------------------------------
 
   Note: It's just an example, you may use a different pins definition.
   For ESP32 example, please follow the link:
@@ -31,9 +31,16 @@
   platform = espressif8266
   board = nodemcuv2
   framework = arduino
-
   lib_deps =
     ESP_VS1053_Library
+
+  [env:esp32dev]
+  platform = espressif32
+  board = esp32dev
+  framework = arduino
+  lib_deps =
+    ESP_VS1053_Library
+
 
 */
 
@@ -45,9 +52,17 @@
 #include "SampleMp3.h"
 
 // Wiring of VS1053 board (SPI connected in a standard way)
+#ifdef ARDUINO_ARCH_ESP8266
 #define VS1053_CS     D1
 #define VS1053_DCS    D0
 #define VS1053_DREQ   D3
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+#define VS1053_CS     5
+#define VS1053_DCS    16
+#define VS1053_DREQ   4
+#endif
 
 #define VOLUME  100 // volume level 0-100
 
