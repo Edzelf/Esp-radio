@@ -63,6 +63,25 @@ Please note that `player.switchToMp3Mode()` is an optional switch. Some of VS105
 You can modify the board, but there is a more elegant way without soldering. For more details please read a discussion here: [http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773](http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773).
 <br />No side effects for boards which do not need this switch, so you can call it just in case.
 
+#### Additionall functionality
+
+Below briefly described. For detailed information please see [VS1053b Datasheet specification](http://www.vlsi.fi/fileadmin/datasheets/vs1053.pdf).
+
+##### Test VS1053 chip via `SCI_STATUS`
+To check if the VS1053 chip is connected and able to exchange data to the microcontroller use the `player.isChipConnected()`.
+
+This is a lightweight method to check if VS1053 is correctly wired up (power supply and connection to SPI interface).
+
+For additional information please see [this issue](https://github.com/baldram/ESP_VS1053_Library/issues/24).
+
+##### Check and reset decoding time by `SCI_DECODE_TIME`
+
+`uint16_t seconds = player.getDecodedTime();  `
+
+Above example and self-explanatory method name tells everything. It simply provides current decoded time in full seconds (from `SCI_DECODE_TIME` register value).
+
+Optionally available is also `player.clearDecodedTime()` which clears decoded time (sets `SCI_DECODE_TIME` register to `0x00`).
+
 #### Logging / debugging
 
 The library uses ESP Arduino framework built in logger (Arduino core for [ESP32](https://github.com/espressif/arduino-esp32/issues/893#issuecomment-348069135) and [ESP8266](https://github.com/esp8266/Arduino/blob/master/doc/Troubleshooting/debugging.rst#debug-level)).<br /> 
