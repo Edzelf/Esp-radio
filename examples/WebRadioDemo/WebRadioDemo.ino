@@ -82,7 +82,8 @@ const char *host = "comet.shoutca.st";
 const char *path = "/1";
 int httpPort = 8563;
 
-uint8_t mp3buff[32];
+// The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.
+uint8_t mp3buff[64];
 
 void setup () {
     Serial.begin(115200);
@@ -139,7 +140,8 @@ void loop() {
     }
   
     if(client.available() > 0){
-      uint8_t bytesread = client.read(mp3buff, 32);
+      // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.
+      uint8_t bytesread = client.read(mp3buff, 64);
       player.playChunk(mp3buff, bytesread);
     }
 }
