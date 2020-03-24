@@ -68,9 +68,9 @@
 
 VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
 
-void setup () {
+void setup() {
     Serial.begin(115200);
-  
+
     // initialize SPI
     SPI.begin();
 
@@ -83,7 +83,7 @@ void setup () {
 
 void loop() {
     Serial.println("Playing sound... ");
-  
+
     // play mp3 flow each 3s
     player.playChunk(sampleMp3, sizeof(sampleMp3));
     delay(3000);

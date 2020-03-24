@@ -1,0 +1,24 @@
+# EditorConfig helps developers define and maintain consistent
+# coding styles between different editors and IDEs
+# http://editorconfig.org
+
+[*]
+indent_style = space
+indent_size = 4
+continuation_indent_size = 8
+max_line_length = 100
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[{Makefile,*.mk,*.bat}]
+indent_style = tab
+indent_size = 2
+
+[{*.cmake,CMakeLists.*}]
+max_line_length = 120
+

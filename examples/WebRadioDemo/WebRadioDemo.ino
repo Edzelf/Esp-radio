@@ -53,6 +53,7 @@
 */
 
 #include <VS1053.h>
+
 #ifdef ARDUINO_ARCH_ESP8266
 #include <ESP8266WiFi.h>
 #define VS1053_CS     D1
@@ -74,9 +75,9 @@ VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
 WiFiClient client;
 
 // WiFi settings example, substitute your own
-const char* ssid = "TP-Link";
-const char* password = "xxxxxxxx";
-     
+const char *ssid = "TP-Link";
+const char *password = "xxxxxxxx";
+
 //  http://comet.shoutca.st:8563/1
 const char *host = "comet.shoutca.st";
 const char *path = "/1";
@@ -85,7 +86,7 @@ int httpPort = 8563;
 // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.
 uint8_t mp3buff[64];
 
-void setup () {
+void setup() {
     Serial.begin(115200);
 
     // Wait for VS1053 and PAM8403 to power up
@@ -94,54 +95,57 @@ void setup () {
 
     // This can be set in the IDE no need for ext library
     // system_update_cpu_freq(160);
-    
+
     Serial.println("\n\nSimple Radio Node WiFi Radio");
-    
+
     SPI.begin();
 
     player.begin();
     player.switchToMp3Mode();
     player.setVolume(VOLUME);
 
-    Serial.print("Connecting to SSID "); Serial.println(ssid);
+    Serial.print("Connecting to SSID ");
+    Serial.println(ssid);
     WiFi.begin(ssid, password);
-      
+
     while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
+        delay(500);
+        Serial.print(".");
     }
 
-    Serial.println("WiFi connected");  
-    Serial.println("IP address: ");  Serial.println(WiFi.localIP());
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
 
-    Serial.print("connecting to ");  Serial.println(host);
-      
+    Serial.print("connecting to ");
+    Serial.println(host);
+
     if (!client.connect(host, httpPort)) {
-      Serial.println("Connection failed");
-      return;
+        Serial.println("Connection failed");
+        return;
     }
 
     Serial.print("Requesting stream: ");
     Serial.println(path);
-    
+
     client.print(String("GET ") + path + " HTTP/1.1\r\n" +
-                  "Host: " + host + "\r\n" + 
-                  "Connection: close\r\n\r\n");
+                 "Host: " + host + "\r\n" +
+                 "Connection: close\r\n\r\n");
 }
 
 void loop() {
-    if(!client.connected()){
-      Serial.println("Reconnecting...");
-      if(client.connect(host, httpPort)){
-        client.print(String("GET ") + path + " HTTP/1.1\r\n" +
-                  "Host: " + host + "\r\n" + 
-                  "Connection: close\r\n\r\n");
-      }
+    if (!client.connected()) {
+        Serial.println("Reconnecting...");
+        if (client.connect(host, httpPort)) {
+            client.print(String("GET ") + path + " HTTP/1.1\r\n" +
+                         "Host: " + host + "\r\n" +
+                         "Connection: close\r\n\r\n");
+        }
     }
-  
-    if(client.available() > 0){
-      // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.
-      uint8_t bytesread = client.read(mp3buff, 64);
-      player.playChunk(mp3buff, bytesread);
+
+    if (client.available() > 0) {
+        // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.
+        uint8_t bytesread = client.read(mp3buff, 64);
+        player.playChunk(mp3buff, bytesread);
     }
 }
