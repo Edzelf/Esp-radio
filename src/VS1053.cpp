@@ -189,12 +189,32 @@ void VS1053::begin() {
 void VS1053::setVolume(uint8_t vol) {
     // Set volume.  Both left and right.
     // Input value is 0..100.  100 is the loudest.
-    uint16_t value; // Value to send to SCI_VOL
+    uint8_t valueL, valueR; // Values to send to SCI_VOL
 
     curvol = vol;                         // Save for later use
-    value = map(vol, 0, 100, 0xFF, 0x00); // 0..100% to one channel
-    value = (value << 8) | value;
-    write_register(SCI_VOL, value); // Volume left and right
+    valueL = vol;
+    valueR = vol;
+
+    if (curbalance < 0) {
+        valueR = max(0, vol + curbalance);
+    } else if (curbalance > 0) {
+        valueL = max(0, vol - curbalance);
+    }
+
+    valueL = map(valueL, 0, 100, 0xFE, 0x00); // 0..100% to left channel
+    valueR = map(valueR, 0, 100, 0xFE, 0x00); // 0..100% to right channel
+
+    write_register(SCI_VOL, (valueL << 8) | valueR); // Volume left and right
+}
+
+void VS1053::setBalance(int8_t balance) {
+    if (balance > 100) {
+        curbalance = 100;
+    } else if (balance < -100) {
+        curbalance = -100;
+    } else {
+        curbalance = balance;
+    }
 }
 
 void VS1053::setTone(uint8_t *rtone) { // Set bass/treble (4 nibbles)
@@ -210,6 +230,10 @@ void VS1053::setTone(uint8_t *rtone) { // Set bass/treble (4 nibbles)
 
 uint8_t VS1053::getVolume() { // Get the currenet volume setting.
     return curvol;
+}
+
+int8_t VS1053::getBalance() { // Get the currenet balance setting.
+    return curbalance;
 }
 
 void VS1053::startSong() {
