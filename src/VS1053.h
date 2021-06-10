@@ -100,8 +100,6 @@ protected:
 
     uint16_t read_register(uint8_t _reg) const;
 
-    void write_register(uint8_t _reg, uint16_t _value) const;
-
     void sdi_send_buffer(uint8_t *data, size_t len);
 
     void sdi_send_fillers(size_t length);
@@ -165,6 +163,9 @@ public:
 
     // Clears SCI_DECODE_TIME register (sets 0x00)
     void clearDecodedTime();
+
+    // Made public to enable loading firmware patches in user code
+    void write_register(uint8_t _reg, uint16_t _value) const;    
 };
 
 #endif
