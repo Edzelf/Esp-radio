@@ -350,3 +350,17 @@ void VS1053::clearDecodedTime() {
     write_register(SCI_DECODE_TIME, 0x00);
     write_register(SCI_DECODE_TIME, 0x00);
 }
+
+/**
+ * Fine tune the data rate
+ */
+void VS1053::adjustRate(long ppm2) {
+    write_register(SCI_WRAMADDR, 0x1e07);
+    write_register(SCI_WRAM, ppm2);
+    write_register(SCI_WRAM, ppm2 >> 16);
+    // oldClock4KHz = 0 forces  adjustment calculation when rate checked.
+    write_register(SCI_WRAMADDR, 0x5b1c);
+    write_register(SCI_WRAM, 0);
+    // Write to AUDATA or CLOCKF checks rate and recalculates adjustment.
+    write_register(SCI_AUDATA, read_register(SCI_AUDATA));
+}

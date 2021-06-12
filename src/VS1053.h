@@ -152,6 +152,9 @@ public:
         return (digitalRead(dreq_pin) == HIGH);
     }
 
+    // Fine tune the data rate
+    void adjustRate(long ppm2);
+
     // An optional switch preventing the module starting up in MIDI mode
     void switchToMp3Mode();
 
@@ -164,8 +167,9 @@ public:
     // Clears SCI_DECODE_TIME register (sets 0x00)
     void clearDecodedTime();
 
+    // A low level method for a direct data register manipulation.
     // Made public to enable loading firmware patches in user code
-    void write_register(uint8_t _reg, uint16_t _value) const;    
+    void write_register(uint8_t _reg, uint16_t _value) const;
 };
 
 #endif
