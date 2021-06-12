@@ -167,8 +167,8 @@ public:
     // Clears SCI_DECODE_TIME register (sets 0x00)
     void clearDecodedTime();
 
-    // A low level method for a direct data register manipulation.
-    // Made public to enable loading firmware patches in user code
+    // Writes to VS10xx's SCI (serial command interface) SPI bus.
+    // A low level method which helps in loading firmware patches in user code.
     void write_register(uint8_t _reg, uint16_t _value) const;
 };
 
