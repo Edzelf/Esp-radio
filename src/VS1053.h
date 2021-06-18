@@ -38,6 +38,8 @@
 #include <SPI.h>
 #include "ConsoleLogger.h"
 
+#include "patches/vs1053b-patches.plg"
+
 class VS1053 {
 private:
     uint8_t cs_pin;                         // Pin where CS line is connected
@@ -168,8 +170,15 @@ public:
     void clearDecodedTime();
 
     // Writes to VS10xx's SCI (serial command interface) SPI bus.
-    // A low level method which helps in loading firmware patches in user code.
-    void write_register(uint8_t _reg, uint16_t _value) const;
+    // A low level method which lets users access the internals of the VS1053.
+    void writeRegister(uint8_t _reg, uint16_t _value) const;
+
+    // Load a patch or plugin to fix bugs and/or extend functionality.
+    // For more info about patches see http://www.vlsi.fi/en/support/software/vs10xxpatches.html
+    void loadUserCode(const unsigned short* plugin);
+
+    // Loads the latest generic firmware patch.
+    void loadDefaultVs1053Patches();
 };
 
 #endif

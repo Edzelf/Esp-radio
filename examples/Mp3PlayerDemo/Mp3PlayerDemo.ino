@@ -77,6 +77,7 @@ void setup() {
     Serial.println("Hello VS1053!\n");
     // initialize a player
     player.begin();
+    player.loadDefaultVs1053Patches();
     player.switchToMp3Mode(); // optional, some boards require this
     player.setVolume(VOLUME);
 }

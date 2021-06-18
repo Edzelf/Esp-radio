@@ -51,6 +51,7 @@ Then initialize the player and use as in following example:
 
 ```
 player.begin();
+player.loadDefaultVs1053Patches();
 player.setVolume(VOLUME);
 player.switchToMp3Mode();
 player.playChunk(sampleMp3, sizeof(sampleMp3));

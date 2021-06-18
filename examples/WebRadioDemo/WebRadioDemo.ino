@@ -3,7 +3,7 @@
 
   Copyright (C) 2018 Vince Gellár (github.com/vincegellar)
   Licensed under GNU GPL v3
-  
+
   Wiring:
   --------------------------------
   | VS1053  | ESP8266 |  ESP32   |
@@ -101,6 +101,7 @@ void setup() {
     SPI.begin();
 
     player.begin();
+    player.loadDefaultVs1053Patches();
     player.switchToMp3Mode();
     player.setVolume(VOLUME);
 

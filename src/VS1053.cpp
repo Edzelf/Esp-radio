@@ -50,7 +50,7 @@ uint16_t VS1053::read_register(uint8_t _reg) const {
     return result;
 }
 
-void VS1053::write_register(uint8_t _reg, uint16_t _value) const {
+void VS1053::writeRegister(uint8_t _reg, uint16_t _value) const {
     control_mode_on();
     SPI.write(2);        // Write operation
     SPI.write(_reg);     // Register to write (0..0xF)
@@ -97,12 +97,12 @@ void VS1053::sdi_send_fillers(size_t len) {
 }
 
 void VS1053::wram_write(uint16_t address, uint16_t data) {
-    write_register(SCI_WRAMADDR, address);
-    write_register(SCI_WRAM, data);
+    writeRegister(SCI_WRAMADDR, address);
+    writeRegister(SCI_WRAM, data);
 }
 
 uint16_t VS1053::wram_read(uint16_t address) {
-    write_register(SCI_WRAMADDR, address); // Start reading from WRAM
+    writeRegister(SCI_WRAMADDR, address); // Start reading from WRAM
     return read_register(SCI_WRAM);        // Read back result
 }
 
@@ -132,7 +132,7 @@ bool VS1053::testComm(const char *header) {
     LOG("%s", header);  // Show a header
 
     for (i = 0; (i < 0xFFFF) && (cnt < 20); i += delta) {
-        write_register(SCI_VOL, i);         // Write data to SCI_VOL
+        writeRegister(SCI_VOL, i);         // Write data to SCI_VOL
         r1 = read_register(SCI_VOL);        // Read back for the first time
         r2 = read_register(SCI_VOL);        // Read back a second time
         if (r1 != r2 || i != r1 || i != r2) // Check for 2 equal reads
@@ -170,12 +170,12 @@ void VS1053::begin() {
     if (testComm("Slow SPI,Testing VS1053 read/write registers...\n")) {
         //softReset();
         // Switch on the analog parts
-        write_register(SCI_AUDATA, 44101); // 44.1kHz stereo
+        writeRegister(SCI_AUDATA, 44101); // 44.1kHz stereo
         // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
-        write_register(SCI_CLOCKF, 6 << 12); // Normal clock settings multiplyer 3.0 = 12.2 MHz
+        writeRegister(SCI_CLOCKF, 6 << 12); // Normal clock settings multiplyer 3.0 = 12.2 MHz
         // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
         VS1053_SPI = SPISettings(4000000, MSBFIRST, SPI_MODE0);
-        write_register(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_LINE1));
+        writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_LINE1));
         testComm("Fast SPI, Testing VS1053 read/write registers again...\n");
         delay(10);
         await_data_request();
@@ -204,7 +204,7 @@ void VS1053::setVolume(uint8_t vol) {
     valueL = map(valueL, 0, 100, 0xFE, 0x00); // 0..100% to left channel
     valueR = map(valueR, 0, 100, 0xFE, 0x00); // 0..100% to right channel
 
-    write_register(SCI_VOL, (valueL << 8) | valueR); // Volume left and right
+    writeRegister(SCI_VOL, (valueL << 8) | valueR); // Volume left and right
 }
 
 void VS1053::setBalance(int8_t balance) {
@@ -225,7 +225,7 @@ void VS1053::setTone(uint8_t *rtone) { // Set bass/treble (4 nibbles)
     for (i = 0; i < 4; i++) {
         value = (value << 4) | rtone[i]; // Shift next nibble in
     }
-    write_register(SCI_BASS, value); // Volume left and right
+    writeRegister(SCI_BASS, value); // Volume left and right
 }
 
 uint8_t VS1053::getVolume() { // Get the currenet volume setting.
@@ -250,7 +250,7 @@ void VS1053::stopSong() {
 
     sdi_send_fillers(2052);
     delay(10);
-    write_register(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_CANCEL));
+    writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_CANCEL));
     for (i = 0; i < 200; i++) {
         sdi_send_fillers(32);
         modereg = read_register(SCI_MODE); // Read status
@@ -266,7 +266,7 @@ void VS1053::stopSong() {
 
 void VS1053::softReset() {
     LOG("Performing soft-reset\n");
-    write_register(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_RESET));
+    writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_RESET));
     delay(10);
     await_data_request();
 }
@@ -347,20 +347,51 @@ uint16_t VS1053::getDecodedTime() {
  * byteRate calculation.
  */
 void VS1053::clearDecodedTime() {
-    write_register(SCI_DECODE_TIME, 0x00);
-    write_register(SCI_DECODE_TIME, 0x00);
+    writeRegister(SCI_DECODE_TIME, 0x00);
+    writeRegister(SCI_DECODE_TIME, 0x00);
 }
 
 /**
  * Fine tune the data rate
  */
 void VS1053::adjustRate(long ppm2) {
-    write_register(SCI_WRAMADDR, 0x1e07);
-    write_register(SCI_WRAM, ppm2);
-    write_register(SCI_WRAM, ppm2 >> 16);
+    writeRegister(SCI_WRAMADDR, 0x1e07);
+    writeRegister(SCI_WRAM, ppm2);
+    writeRegister(SCI_WRAM, ppm2 >> 16);
     // oldClock4KHz = 0 forces  adjustment calculation when rate checked.
-    write_register(SCI_WRAMADDR, 0x5b1c);
-    write_register(SCI_WRAM, 0);
+    writeRegister(SCI_WRAMADDR, 0x5b1c);
+    writeRegister(SCI_WRAM, 0);
     // Write to AUDATA or CLOCKF checks rate and recalculates adjustment.
-    write_register(SCI_AUDATA, read_register(SCI_AUDATA));
+    writeRegister(SCI_AUDATA, read_register(SCI_AUDATA));
 }
+
+/**
+ * Load a patch or plugin
+ */
+void VS1053::loadUserCode(const unsigned short* plugin) {
+    int i = 0;
+    while (i<sizeof(plugin)/sizeof(plugin[0])) {
+        unsigned short addr, n, val;
+        addr = plugin[i++];
+        n = plugin[i++];
+        if (n & 0x8000U) { /* RLE run, replicate n samples */
+            n &= 0x7FFF;
+            val = plugin[i++];
+            while (n--) {
+                writeRegister(addr, val);
+            }
+        } else {           /* Copy run, copy n samples */
+            while (n--) {
+                val = plugin[i++];
+                writeRegister(addr, val);
+            }
+        }
+    }
+}
+
+/**
+ * Load the latest generic firmware patch
+ */
+void VS1053::loadDefaultVs1053Patches() {
+   loadUserCode(PATCHES);
+};
