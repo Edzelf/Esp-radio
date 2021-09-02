@@ -51,14 +51,16 @@ Then initialize the player and use as in following example:
 
 ```
 player.begin();
-player.loadDefaultVs1053Patches();
+if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
+    player.loadDefaultVs1053Patches(); 
+}
 player.setVolume(VOLUME);
 player.switchToMp3Mode();
 player.playChunk(sampleMp3, sizeof(sampleMp3));
 ```
     
 For complete code please check [examples](https://github.com/baldram/ESP_VS1053_Library/tree/master/examples) folder.
-The example plays the sound like this [(click to listen to the sound)](https://drive.google.com/open?id=1Mm4dc-sM7KjZcKmv5g1nwhe3-qtm7yUl) every three minutes.
+The example plays the sound like this [(click to listen to the sound)](https://drive.google.com/open?id=1Mm4dc-sM7KjZcKmv5g1nwhe3-qtm7yUl) every three seconds.
 
 Please note that `player.switchToMp3Mode()` is an optional switch. Some of VS1053 modules will start up in MIDI mode. The result is no audio when playing MP3.
 You can modify the board, but there is a more elegant way without soldering. For more details please read a discussion here: [http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773](http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773).
@@ -74,6 +76,9 @@ To check if the VS1053 chip is connected and able to exchange data to the microc
 This is a lightweight method to check if VS1053 is correctly wired up (power supply and connection to SPI interface).
 
 For additional information please see [this issue](https://github.com/baldram/ESP_VS1053_Library/issues/24).
+
+##### Get chip version via `SCI_STATUS`
+A lot of the VS1003 and VS1053 devices completely look the same. They are even both labeled with "VS1003/1053 MP3 CODEC". To check which chip you are using use the `player.getChipVersion()`. It should return 4 for VS1053 and 3 for VS1003. This is also a lightweight method to check whether your VS10xx device is wired up correctly.
 
 ##### Check and reset decoding time by `SCI_DECODE_TIME`
 

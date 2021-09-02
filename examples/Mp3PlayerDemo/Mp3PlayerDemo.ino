@@ -77,7 +77,9 @@ void setup() {
     Serial.println("Hello VS1053!\n");
     // initialize a player
     player.begin();
-    player.loadDefaultVs1053Patches();
+    if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
+        player.loadDefaultVs1053Patches(); 
+    }
     player.switchToMp3Mode(); // optional, some boards require this
     player.setVolume(VOLUME);
 }

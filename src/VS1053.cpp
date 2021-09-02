@@ -271,6 +271,29 @@ void VS1053::softReset() {
     await_data_request();
 }
 
+/**
+ * VLSI datasheet: "SM_STREAM activates VS1053b’s stream mode. In this mode, data should be sent with as
+ * even intervals as possible and preferable in blocks of less than 512 bytes, and VS1053b makes
+ * every attempt to keep its input buffer half full by changing its playback speed up to 5%. For best
+ * quality sound, the average speed error should be within 0.5%, the bitrate should not exceed
+ * 160 kbit/s and VBR should not be used. For details, see Application Notes for VS10XX. This
+ * mode only works with MP3 and WAV files."
+*/
+
+void VS1053::streamModeOn() {
+    LOG("Performing streamModeOn\n");
+    writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_STREAM));
+    delay(10);
+    await_data_request();
+}
+
+void VS1053::streamModeOff() {
+    LOG("Performing streamModeOff\n");
+    writeRegister(SCI_MODE, _BV(SM_SDINEW));
+    delay(10);
+    await_data_request();
+}
+
 void VS1053::printDetails(const char *header) {
     uint16_t regbuf[16];
     uint8_t i;
@@ -312,6 +335,17 @@ bool VS1053::isChipConnected() {
     uint16_t status = read_register(SCI_STATUS);
 
     return !(status == 0 || status == 0xFFFF);
+}
+
+/**
+ * get the Version Number for the VLSI chip
+ * VLSI datasheet: 0 for VS1001, 1 for VS1011, 2 for VS1002, 3 for VS1003, 4 for VS1053 and VS8053,
+ * 5 for VS1033, 7 for VS1103, and 6 for VS1063. 
+ */
+uint16_t VS1053::getChipVersion() {
+    uint16_t status = read_register(SCI_STATUS);
+       
+    return ( (status & 0x00F0) >> 4);
 }
 
 /**

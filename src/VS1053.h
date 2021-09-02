@@ -38,7 +38,7 @@
 #include <SPI.h>
 #include "ConsoleLogger.h"
 
-#include "patches/vs1053b-patches.plg"
+#include "patches/vs1053b-patches.h"
 
 class VS1053 {
 private:
@@ -69,6 +69,7 @@ private:
     const uint8_t SM_CANCEL = 3;            // Bitnumber in SCI_MODE cancel song
     const uint8_t SM_TESTS = 5;             // Bitnumber in SCI_MODE for tests
     const uint8_t SM_LINE1 = 14;            // Bitnumber in SCI_MODE for Line input
+    const uint8_t SM_STREAM = 6;            // Bitnumber in SCI_MODE for Streaming Mode
     SPISettings VS1053_SPI;                 // SPI settings for this slave
     uint8_t endFillByte;                    // Byte to send when stopping song
 protected:
@@ -157,11 +158,20 @@ public:
     // Fine tune the data rate
     void adjustRate(long ppm2);
 
+    // Streaming Mode On
+    void streamModeOn();
+    
+    // Default: Streaming Mode Off
+    void streamModeOff();      
+
     // An optional switch preventing the module starting up in MIDI mode
     void switchToMp3Mode();
 
     // Checks whether the VS1053 chip is connected and is able to exchange data to the ESP
     bool isChipConnected();
+
+    // gets Version of the VLSI chip being used
+    uint16_t getChipVersion();    
 
     // Provides SCI_DECODE_TIME register value
     uint16_t getDecodedTime();
