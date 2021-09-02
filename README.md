@@ -30,26 +30,26 @@ As mentioned in first paragraph, the library was prepared to be used with Platfo
 
 To use this library in your PlatformIO project, simply add to your `platformio.ini` a dependency (id=1744) as following:
 
-```
+```ini
 lib_deps =
     ESP_VS1053_Library
 ```
 
 From your `.cpp` or `.ino` code include VS1053 library.
 
-```
+```c++
 #include <VS1053.h>
 ```
 
 Afterwards simply instantiate an object of VS1053 player as below:
 
-```
+```c++
 VS1053 player(CS, DCS, DREQ);
 ```
 
 Then initialize the player and use as in following example:
 
-```
+```c++
 player.begin();
 if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
     player.loadDefaultVs1053Patches(); 
@@ -104,14 +104,14 @@ To see debug messages please add build flags to your `platformio.ini` as below (
 
 The Serial Interface needs to be initialized in the `setup()`.
 
-```
+```c++
 void setup() {
     Serial.begin(115200);
 }
 ```
 Now if something is wrong, you'll see the output like below (from ESP32):
 
-```
+```shell
 [I][main.cpp:117] setup(): Hello # VS1053!
 [D][VS1053.cpp:156] begin(): 
 [D][VS1053.cpp:157] begin(): Reset VS1053...
@@ -120,7 +120,7 @@ Now if something is wrong, you'll see the output like below (from ESP32):
 ```
 In successful case it would start with something like this:
 
-```
+```shell
 [I][main.cpp:117] setup(): Hello # VS1053!
 [D][VS1053.cpp:156] begin(): 
 [D][VS1053.cpp:157] begin(): Reset VS1053...
@@ -158,7 +158,7 @@ A hint for CLion developers.
 The IDE files are added to `.gitignore`, but once you clone the code you should be able to develop the 
 library easily with CLion after calling the command from terminal as below:
 
-```
+```sh
 $ platformio init --ide=clion
 ```
 Then please import the project and run the PIO task: `PLATFORMIO_REBUILD_PROJECT_INDEX`.<br />
