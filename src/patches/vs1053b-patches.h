@@ -618,7 +618,7 @@ const unsigned short PATCHES[] = { /* Compressed plugin */
 	0x2a01,0x824e,
 	0x000a,0x0001, /*copy 1*/
 	0x0050,
-#define PLUGIN_SIZE 4667
+#define PATCHES_SIZE 4667
 #ifndef SKIP_PLUGIN_VARNAME
 };
 #endif

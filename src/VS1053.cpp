@@ -401,10 +401,22 @@ void VS1053::adjustRate(long ppm2) {
 
 /**
  * Load a patch or plugin
+ *
+ * Patches can be found on the VLSI Website http://www.vlsi.fi/en/support/software/vs10xxpatches.html
+ *  
+ * Please note that loadUserCode only works for compressed plugins (file ending .plg). 
+ * To include them, rename them to file ending .h 
+ * Please also note that, in order to avoid multiple definitions, if you are using more than one patch, 
+ * it is necessary to rename the name of the array plugin[] and the name of PLUGIN_SIZE to names of your choice.
+ * example: after renaming plugin[] to plugin_myname[] and PLUGIN_SIZE to PLUGIN_MYNAME_SIZE 
+ * the method is called by player.loadUserCode(plugin_myname, PLUGIN_MYNAME_SIZE)
+ * It is also possible to just rename the array plugin[] to a name of your choice
+ * example: after renaming plugin[] to plugin_myname[]  
+ * the method is called by player.loadUserCode(plugin_myname, sizeof(plugin_myname)/sizeof(plugin_myname[0]))
  */
-void VS1053::loadUserCode(const unsigned short* plugin) {
+void VS1053::loadUserCode(const unsigned short* plugin, unsigned short plugin_size) {
     int i = 0;
-    while (i<sizeof(plugin)/sizeof(plugin[0])) {
+    while (i<plugin_size) {
         unsigned short addr, n, val;
         addr = plugin[i++];
         n = plugin[i++];
@@ -427,5 +439,5 @@ void VS1053::loadUserCode(const unsigned short* plugin) {
  * Load the latest generic firmware patch
  */
 void VS1053::loadDefaultVs1053Patches() {
-   loadUserCode(PATCHES);
+   loadUserCode(PATCHES,PATCHES_SIZE);
 };

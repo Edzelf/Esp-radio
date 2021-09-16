@@ -185,7 +185,7 @@ public:
 
     // Load a patch or plugin to fix bugs and/or extend functionality.
     // For more info about patches see http://www.vlsi.fi/en/support/software/vs10xxpatches.html
-    void loadUserCode(const unsigned short* plugin);
+    void loadUserCode(const unsigned short* plugin, unsigned short plugin_size);
 
     // Loads the latest generic firmware patch.
     void loadDefaultVs1053Patches();
