@@ -96,7 +96,7 @@
 // 27-04-2016, ES: Save settings, so same volume and preset will be used after restart.
 // 03-05-2016, ES: Add bass/treble settings (see also new index.html).
 // 04-05-2016, ES: Allow stations like "skonto.ls.lv:8002/mp3".
-// 06-05-2016, ES: Allow hiddens WiFi station if this is the only .pw file.
+// 06-05-2016, ES: Allow hidden WiFi station if this is the only .pw file.
 // 07-05-2016, ES: Added preset selection in webserver.
 // 12-05-2016, ES: Added support for Ogg-encoder.
 // 13-05-2016, ES: Better Ogg detection.
@@ -132,19 +132,26 @@
 // 18-04-2018, ES: Workaround for not working wifi.connected().
 // 05-10-2018, ES: Fixed exception if no network was found.
 // 23-04-2018, ES: Check BASS setting.
+// 06-07-2021, ES: Switched to LittleFS.
+// 06-07-2021, ES: Added SPI RAM (experimental).
+// 08-02-2022, ES: Added redirection.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Tue, 23 Apr 2019 09:10:00 GMT"
+#define VERSION "Thu, 10 Feb 2022 10:45:00 GMT"
+// Experimental SPI-RAM
+//#define SPIRAM                                 // Use SPIRAM as ringbuffer. Undefined = do not use
+//#define SPIRAMDELAY 100000                     // Delay (in bytes) before reading from SPIRAM
 // TFT.  Define USETFT if required.
 #define USETFT
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncMqttClient.h>
 #include <SPI.h>
 #if defined ( USETFT )
-#include <Adafruit_GFX.h>
-#include <TFT_ILI9163C.h>
+  #include <Adafruit_GFX.h>
+  #include <TFT_ILI9163C.h>
 #endif
 #include <Ticker.h>
 #include <stdio.h>
@@ -152,10 +159,13 @@
 #include <FS.h>
 #include <ArduinoOTA.h>
 #include <TinyXML.h>
-
+#include <LittleFS.h>
+#ifdef SPIRAM
+  #include "spiram.hpp"
+#endif
 extern "C"
 {
-#include "user_interface.h"
+  #include "user_interface.h"
 }
 
 // Definitions for 3 control switches on analog input
@@ -192,7 +202,8 @@ extern "C"
 #define BUTTON2 0
 #define BUTTON3 15
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
-#define RINGBFSIZ 20000
+// If buffer is too long, the webinterface does not work anymore
+#define RINGBFSIZ 16000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
@@ -223,6 +234,9 @@ String chomp ( String str ) ;
 void   publishIP() ;
 String xmlparse ( String mount ) ;
 bool   connecttohost() ;
+void XML_callback ( uint8_t statusflags, char* tagName, uint16_t tagNameLen,
+                    char* data,  uint16_t dataLen ) ;
+
 
 
 //
@@ -287,7 +301,7 @@ bool             muteflag = false ;                        // Mute output
 uint8_t*         ringbuf ;                                 // Ringbuffer for VS1053
 uint16_t         rbwindex = 0 ;                            // Fill pointer in ringbuffer
 uint16_t         rbrindex = RINGBFSIZ - 1 ;                // Emptypointer in ringbuffer
-uint16_t         rcount = 0 ;                              // Number of bytes in ringbuffer
+uint16_t         rcount = 0 ;                              // Nr of bytes/chunks in ringbuffer/SPIRAM
 uint16_t         analogsw[NUMANA] = { asw1, asw2, asw3 } ; // 3 levels of analog input
 uint16_t         analogrest ;                              // Rest value of analog input
 bool             resetreq = false ;                        // Request to reset the ESP8266
@@ -303,7 +317,12 @@ File             mp3file  ;                                // File containing mp
 bool             localfile = false ;                       // Play from local mp3-file or not
 bool             chunked = false ;                         // Station provides chunked transfer
 int              chunkcount = 0 ;                          // Counter for chunked transfer
-
+//bool           usespiram = SPIRAM ;                      // For check using SPIRAM at runtime
+uint8_t          prcwinx ;                                 // Index in pwchunk (see putring)
+uint8_t          prcrinx ;                                 // Index in prchunk (see getring)
+#ifdef SPIRAM
+  int32_t        spiramdelay = SPIRAMDELAY ;               // Delay before reading from SPIRAM
+#endif
 // XML parse globals.
 const char* xmlhost = "playerservices.streamtheworld.com" ;// XML data source
 const char* xmlget =  "GET /api/livestream"                // XML get parameters
@@ -734,7 +753,11 @@ VS1053 vs1053player (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
 //******************************************************************************************
 inline bool ringspace()
 {
-  return ( rcount < RINGBFSIZ ) ;     // True is at least one byte of free space is available
+  #ifdef SPiRAM
+    return spaceAvailable() ;         // True if at least 1 chunk available
+  #else
+    return ( rcount < RINGBFSIZ ) ;   // True is at least one byte of free space is available
+  #endif
 }
 
 
@@ -743,38 +766,66 @@ inline bool ringspace()
 //******************************************************************************************
 inline uint16_t ringavail()
 {
-  return rcount ;                     // Return number of bytes available
+  #ifdef SPiRAM
+    return dataAvailable() ;          // Return number of chunks filled
+  #else
+    return rcount ;                     // Return number of bytes available
+  #endif
 }
 
 
 //******************************************************************************************
 //                                P U T R I N G                                            *
 //******************************************************************************************
-void putring ( uint8_t b )                 // Put one byte in the ringbuffer
+// No check on available space.  See ringspace()                                           *
+//******************************************************************************************
+void putring ( uint8_t b )              // Put one byte in the ringbuffer
 {
-  // No check on available space.  See ringspace()
-  *(ringbuf + rbwindex) = b ;         // Put byte in ringbuffer
-  if ( ++rbwindex == RINGBFSIZ )      // Increment pointer and
-  {
-    rbwindex = 0 ;                    // wrap at end
-  }
-  rcount++ ;                          // Count number of bytes in the
+
+  #ifdef SPIRAM
+    static uint8_t pwchunk[32] ;        // Buffer for one chunk
+    pwchunk[prcwinx++] = b ;            // Store in local chunk
+    if ( prcwinx == sizeof(pwchunk) )   // Chunk full?
+    {
+      bufferWrite ( pwchunk ) ;         // Yes, store in SPI RAM
+      prcwinx = 0 ;                     // Index to begin of chunk
+    }
+  #else
+    *(ringbuf + rbwindex) = b ;         // Put byte in ringbuffer
+    if ( ++rbwindex == RINGBFSIZ )      // Increment pointer and
+    {
+      rbwindex = 0 ;                    // wrap at end
+    }
+    rcount++ ;                          // Count number of bytes in the
+#endif
 }
 
 
 //******************************************************************************************
 //                                G E T R I N G                                            *
 //******************************************************************************************
+// Assume there is always something in the bufferpace.  See ringavail().                   *
+//******************************************************************************************
 uint8_t getring()
 {
-  // Assume there is always something in the bufferpace.  See ringavail()
-  if ( ++rbrindex == RINGBFSIZ )      // Increment pointer and
-  {
-    rbrindex = 0 ;                    // wrap at end
-  }
-  rcount-- ;                          // Count is now one less
-  return *(ringbuf + rbrindex) ;      // return the oldest byte
+  #ifdef SPIRAM
+    static uint8_t prchunk[32] ;          // Buffer for one chunk
+    if ( prcrinx >= sizeof(prchunk) )     // End of buffer reached?
+    {
+      prcrinx = 0 ;                       // Yes, reset index to begin of buffer
+      bufferRead ( prchunk ) ;            // And read new buffer
+    }
+    return ( prchunk[prcrinx++] ) ;
+  #else
+    if ( ++rbrindex == RINGBFSIZ )        // Increment pointer and
+    {
+      rbrindex = 0 ;                      // wrap at end
+    }
+    rcount-- ;                            // Count is now one less
+    return *(ringbuf + rbrindex) ;        // return the oldest byte
+  #endif
 }
+
 
 //******************************************************************************************
 //                               E M P T Y R I N G                                         *
@@ -784,6 +835,8 @@ void emptyring()
   rbwindex = 0 ;                      // Reset ringbuffer administration
   rbrindex = RINGBFSIZ - 1 ;
   rcount = 0 ;
+  prcwinx = 0 ;
+  prcrinx = 32 ;                       // Set buffer to empty
 }
 
 
@@ -898,7 +951,7 @@ const char* getEncryptionType ( int thisType )
 //                                L I S T N E T W O R K S                                  *
 //******************************************************************************************
 // List the available networks and select the strongest.                                   *
-// Acceptable networks are those who have a "SSID.pw" file in the SPIFFS.                  *
+// Acceptable networks are those who have an entry in "anetworks".                         *
 // SSIDs of available networks will be saved for use in webinterface.                      *
 //******************************************************************************************
 void listNetworks()
@@ -1058,7 +1111,7 @@ void testfile ( String fspec )
   t1 = t0 ;                                            // Prevent uninitialized value
   told = t0 ;                                          // For report
   path = String ( "/" ) + fspec ;                      // Form full path
-  tfile = SPIFFS.open ( path, "r" ) ;                  // Open the file
+  tfile = LittleFS.open ( path, "r" ) ;                // Open the file
   if ( tfile )
   {
     len = tfile.available() ;                          // Get file length
@@ -1306,7 +1359,6 @@ void stop_mp3client ()
 
 //******************************************************************************************
 //                            C O N N E C T T O H O S T                                    *
-
 //******************************************************************************************
 // Connect to the Internet radio server specified by newpreset.                            *
 //******************************************************************************************
@@ -1382,7 +1434,7 @@ bool connecttofile()
 
   displayinfo ( "   **** MP3 Player ****", 0, 20, WHITE ) ;
   path = host.substring ( 9 ) ;                           // Path, skip the "localhost" part
-  mp3file = SPIFFS.open ( path, "r" ) ;                   // Open the file
+  mp3file = LittleFS.open ( path, "r" ) ;                 // Open the file
   if ( !mp3file )
   {
     dbgprint ( "Error opening file %s", path.c_str() ) ;  // No luck
@@ -1451,14 +1503,14 @@ String readhostfrominifile ( int8_t preset )
 {
   String      path ;                                   // Full file spec as string
   File        inifile ;                                // File containing URL with mp3
-  char        tkey[10] ;                               // Key as an array of chars
+  char        tkey[12] ;                               // Key as an array of chars
   String      line ;                                   // Input line from .ini file
   String      linelc ;                                 // Same, but lowercase
   int         inx ;                                    // Position within string
   String      res = "" ;                               // Assume not found
 
   path = String ( INIFILENAME ) ;                      // Form full path
-  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  inifile = LittleFS.open ( path, "r" ) ;              // Open the file
   if ( inifile )
   {
     sprintf ( tkey, "preset_%02d", preset ) ;           // Form the search key
@@ -1500,7 +1552,7 @@ void readinifile()
   String      line ;                                   // Input line from .ini file
 
   path = String ( INIFILENAME ) ;                      // Form full path
-  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  inifile = LittleFS.open ( path, "r" ) ;              // Open the file
   if ( inifile )
   {
     while ( inifile.available() )
@@ -1700,7 +1752,7 @@ void mk_lsan()
   num_an = 0 ;                                         // Count acceptable networks
   anetworks = "|" ;                                    // Initial value
   path = String ( INIFILENAME ) ;                      // Form full path
-  inifile = SPIFFS.open ( path, "r" ) ;                // Open the file
+  inifile = LittleFS.open ( path, "r" ) ;              // Open the file
   if ( inifile )
   {
     while ( inifile.available() )
@@ -1748,7 +1800,7 @@ void getpresets()
 
   presetlist = String ( "" ) ;                           // No result yet
   path = String ( INIFILENAME ) ;                        // Form full path
-  inifile = SPIFFS.open ( path, "r" ) ;                  // Open the file
+  inifile = LittleFS.open ( path, "r" ) ;                // Open the file
   if ( inifile )
   {
     while ( inifile.available() )
@@ -1797,20 +1849,35 @@ void setup()
   Serial.begin ( 115200 ) ;                            // For debug
   Serial.println() ;
   system_update_cpu_freq ( 160 ) ;                     // Set to 80/160 MHz
-  ringbuf = (uint8_t *) malloc ( RINGBFSIZ ) ;         // Create ring buffer
+  #ifdef SPIRAM                                        // Use SPI RAM?
+    spiramSetup() ;                                    // Yes, do set-up
+    emptyring() ;                                      // Empty the buffer
+  #else
+    ringbuf = (uint8_t *) malloc ( RINGBFSIZ ) ;       // Create ring buffer
+  #endif
   xml.init ( xmlbuffer, sizeof(xmlbuffer),             // Initilize XML stream.
              &XML_callback ) ;
-  memset ( &ini_block, 0, sizeof(ini_block) ) ;        // Init ini_block
-  ini_block.mqttport = 1883 ;                          // Default port for MQTT
-  SPIFFS.begin() ;                                     // Enable file system
+  //memset ( &ini_block, 0, sizeof(ini_block) ) ;      // Init ini_block
+  ini_block.mqttbroker = "" ;
+  ini_block.mqttport   = 1883 ;                        // Default port for MQTT
+  ini_block.mqttuser   = "" ;
+  ini_block.mqttpasswd = "" ;
+  ini_block.mqtttopic  = "" ;
+  ini_block.mqttpubtopic = "" ;
+  ini_block.reqvol       = 0 ;
+  memset ( ini_block.rtone, 0, 4 )  ;
+  ini_block.newpreset    = 0 ;
+  ini_block.ssid = "" ;
+  ini_block.passwd = "" ;
+  LittleFS.begin() ;                                   // Enable file system
   // Show some info about the SPIFFS
-  SPIFFS.info ( fs_info ) ;
+  LittleFS.info ( fs_info ) ;
   dbgprint ( "FS Total %d, used %d", fs_info.totalBytes, fs_info.usedBytes ) ;
   if ( fs_info.totalBytes == 0 )
   {
     dbgprint ( "No SPIFFS found!  See documentation." ) ;
   }
-  dir = SPIFFS.openDir("/") ;                          // Show files in FS
+  dir = LittleFS.openDir("/") ;                        // Show files in FS
   while ( dir.next() )                                 // All files
   {
     f = dir.openFile ( "r" ) ;
@@ -1897,6 +1964,23 @@ void setup()
   }
   delay ( 1000 ) ;                                     // Show IP for a while
   analogrest = ( analogRead ( A0 ) + asw1 ) / 2  ;     // Assumed inactive analog input
+  #ifdef SPIRAM
+    dbgprint ( "Testing SPIRAM getring/putring" ) ;
+    for ( int i = 0 ; i < 96 ; i++ )                    // Test for 96 bytes, 3 chunks
+    {
+      putring ( i ) ;                                    // Store in spiram
+      dbgprint ( "Test 1: %d, chunks avl is %d",         // Test, expect 0,0 1,0 2,0 .... 95,3
+                i, ringavail() ) ;
+    }
+    for ( int i = 0 ; i < 96 ; i++ )                    // Test for 100 bytes
+    {
+      uint8_t c = getring() ;                            // Read from spiram
+      dbgprint ( "Test 2: %d, data is %d, ch av is %d",  // Test, expect 0,0,2 1,1,2 2,2,2 .... 95,95,0
+                i, c, ringavail() ) ;
+    }
+    dbgprint ( "Chunks avl is %d",                       // Test, expect 0
+              ringavail() ) ;
+  #endif
 }
 
 
@@ -2070,6 +2154,7 @@ void loop()
 {
   uint32_t    maxfilechunk  ;                           // Max number of bytes to read from
                                                         // stream or file
+
   // Try to keep the ringbuffer filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |              // Test op playing
                     METADATA | PLAYLISTINIT |
@@ -2106,6 +2191,13 @@ void loop()
   }
   while ( vs1053player.data_request() && ringavail() ) // Try to keep VS1053 filled
   {
+    #ifdef SPIRAM
+      if ( usespiram && ( spiramdelay != 0 ) )         // Delay before reading SPIRAM?
+      {
+        spiramdelay-- ;                                // Yes, count down
+        break ;                                        // and skip handling of data
+      }
+    #endif
     handlebyte_ch ( getring() ) ;                      // Yes, handle it
   }
   yield() ;
@@ -2332,12 +2424,14 @@ void handlebyte ( uint8_t b, bool force )
   String           lcml ;                              // Lower case metaline
   String           ct ;                                // Contents type
   static bool      ctseen = false ;                    // First line of header seen or not
+  static bool      redirection = false ;               // Redirection or not
   int              inx ;                               // Pointer in metaline
   int              i ;                                 // Loop control
 
   if ( datamode == INIT )                              // Initialize for header receive
   {
     ctseen = false ;                                   // Contents type not seen yet
+    redirection = false ;                              // No redirect yet
     metaint = 0 ;                                      // No metaint found
     LFcount = 0 ;                                      // For detection end of header
     bitrate = 0 ;                                      // Bitrate still unknown
@@ -2398,6 +2492,19 @@ void handlebyte ( uint8_t b, bool force )
         lcml = metaline ;                              // Use lower case for compare
         lcml.toLowerCase() ;
         dbgprint ( metaline.c_str() ) ;                // Yes, Show it
+        if ( lcml.startsWith ( "location: " ) )        // Redirection?
+        {
+          redirection = true ;
+          if ( lcml.indexOf ( "http://" ) > 8 )        // Redirection with http://?
+          {
+            host = metaline.substring ( 17 ) ;         // Yes, get new URL
+          }
+          else if ( lcml.indexOf ( "https://" ) )      // Redirection with ttps://?
+          {
+            host = metaline.substring ( 18 ) ;         // Yes, get new URL
+          }
+          hostreq = true ;
+        }
         if ( lcml.indexOf ( "content-type" ) >= 0 )    // Line with "Content-Type: xxxx/yyy"
         {
           ctseen = true ;                              // Yes, remember seeing this
@@ -2434,15 +2541,27 @@ void handlebyte ( uint8_t b, bool force )
         }
       }
       metaline = "" ;                                  // Reset this line
-      if ( ( LFcount == 2 ) && ctseen )                // Some data seen and a double LF?
+      if ( LFcount == 2 )                              // Double linfeed ends header
       {
-        dbgprint ( "Switch to DATA, bitrate is %d"     // Show bitrate
-                   ", metaint is %d",                  // and metaint
-                   bitrate, metaint ) ;
-        datamode = DATA ;                              // Expecting data now
-        datacount = metaint ;                          // Number of bytes before first metadata
         bufcnt = 0 ;                                   // Reset buffer count
-        vs1053player.startSong() ;                     // Start a new song
+        if ( ctseen )                                  // Some data seen and a double LF?
+        {
+          dbgprint ( "Switch to DATA, bitrate is %d"   // Show bitrate
+                    ", metaint is %d",                 // and metaint
+                    bitrate, metaint ) ;
+          datamode = DATA ;                            // Expecting data now
+          #ifdef SPIRAM
+            spiramdelay = SPIRAMDELAY ;                // Start delay
+          #endif
+          //emptyring() ;                              // Empty SPIRAM buffer (not sure about this)
+          datacount = metaint ;                        // Number of bytes before first metadata
+          bufcnt = 0 ;                                 // Reset buffer count
+          vs1053player.startSong() ;                   // Start a new song
+        }
+        if ( redirection )                             // Redirect seen?
+        {
+          datamode = INIT ;
+        }
       }
     }
     else
@@ -2629,8 +2748,8 @@ void handleFileUpload ( AsyncWebServerRequest *request, String filename,
   if ( index == 0 )
   {
     path = String ( "/" ) + filename ;                // Form SPIFFS filename
-    SPIFFS.remove ( path ) ;                          // Remove old file
-    f = SPIFFS.open ( path, "w" ) ;                   // Create new file
+    LittleFS.remove ( path ) ;                        // Remove old file
+    f = LittleFS.open ( path, "w" ) ;                 // Create new file
     t = millis() ;                                    // Start time
     totallength = 0 ;                                 // Total file lengt still zero
     lastindex = 0 ;                                   // Prepare test
@@ -2698,7 +2817,7 @@ void handleFSf ( AsyncWebServerRequest* request, const String& filename )
     }
     else
     {
-      response = request->beginResponse ( SPIFFS, filename, ct ) ;
+      response = request->beginResponse ( LittleFS, filename, ct ) ;
     }
     // Add extra headers
     response->addHeader ( "Server", NAME ) ;
@@ -2958,6 +3077,12 @@ char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "test" )                      // Test command
   {
+    #ifdef SPIRAM
+      if ( usespiram )                                // SPI RAM use?
+      {
+        rcount = dataAvailable() ;                    // Yes, get free space
+      }
+    #endif
     sprintf ( reply, "Free memory is %d, ringbuf %d, stream %d",
               system_get_free_heap_size(), rcount, mp3client->available() ) ;
   }
@@ -3098,7 +3223,7 @@ void handleCmd ( AsyncWebServerRequest* request )
     p = request->getParam ( 1 ) ;                       // Get pointer to next parameter structure
     if ( p->isPost() )                                  // Does it have a POST?
     {
-      f = SPIFFS.open ( INIFILENAME, "w" ) ;            // Save to inifile
+      f = LittleFS.open ( INIFILENAME, "w" ) ;          // Save to inifile
       if ( f )
       {
         f.print ( p->value() ) ;
