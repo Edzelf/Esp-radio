@@ -32,6 +32,7 @@ Features:
 See documentation in pdf-file.
 
 Last changes:
+- 10-feb-2022: Add redirection.
 - 05-apr-2018: Fixed crash when no known WiFi network was found.
 - 18-apr-2018: Work-around for wifi.connected() bug.
 - 31-may-2017: Volume indicator on display.
