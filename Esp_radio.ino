@@ -137,7 +137,7 @@
 // 08-02-2022, ES: Added redirection.
 //
 // Define the version number, also used for webserver as Last-Modified header:
-#define VERSION "Thu, 10 Feb 2022 10:45:00 GMT"
+#define VERSION "Fri, 11 Feb 2022 13:05:00 GMT"
 // Experimental SPI-RAM
 //#define SPIRAM                                 // Use SPIRAM as ringbuffer. Undefined = do not use
 //#define SPIRAMDELAY 100000                     // Delay (in bytes) before reading from SPIRAM
@@ -203,7 +203,7 @@ extern "C"
 #define BUTTON3 15
 // Ringbuffer for smooth playing. 20000 bytes is 160 Kbits, about 1.5 seconds at 128kb bitrate.
 // If buffer is too long, the webinterface does not work anymore
-#define RINGBFSIZ 16000
+#define RINGBFSIZ 18000
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 100
 // Name of the ini file
@@ -317,7 +317,6 @@ File             mp3file  ;                                // File containing mp
 bool             localfile = false ;                       // Play from local mp3-file or not
 bool             chunked = false ;                         // Station provides chunked transfer
 int              chunkcount = 0 ;                          // Counter for chunked transfer
-//bool           usespiram = SPIRAM ;                      // For check using SPIRAM at runtime
 uint8_t          prcwinx ;                                 // Index in pwchunk (see putring)
 uint8_t          prcrinx ;                                 // Index in prchunk (see getring)
 #ifdef SPIRAM
@@ -753,7 +752,7 @@ VS1053 vs1053player (  VS1053_CS, VS1053_DCS, VS1053_DREQ ) ;
 //******************************************************************************************
 inline bool ringspace()
 {
-  #ifdef SPiRAM
+  #ifdef SPIRAM
     return spaceAvailable() ;         // True if at least 1 chunk available
   #else
     return ( rcount < RINGBFSIZ ) ;   // True is at least one byte of free space is available
@@ -766,7 +765,7 @@ inline bool ringspace()
 //******************************************************************************************
 inline uint16_t ringavail()
 {
-  #ifdef SPiRAM
+  #ifdef SPIRAM
     return dataAvailable() ;          // Return number of chunks filled
   #else
     return rcount ;                     // Return number of bytes available
@@ -2192,7 +2191,7 @@ void loop()
   while ( vs1053player.data_request() && ringavail() ) // Try to keep VS1053 filled
   {
     #ifdef SPIRAM
-      if ( usespiram && ( spiramdelay != 0 ) )         // Delay before reading SPIRAM?
+      if ( spiramdelay != 0 )                          // Delay before reading SPIRAM?
       {
         spiramdelay-- ;                                // Yes, count down
         break ;                                        // and skip handling of data
@@ -3078,13 +3077,10 @@ char* analyzeCmd ( const char* par, const char* val )
   else if ( argument == "test" )                      // Test command
   {
     #ifdef SPIRAM
-      if ( usespiram )                                // SPI RAM use?
-      {
-        rcount = dataAvailable() ;                    // Yes, get free space
-      }
+      rcount = dataAvailable() ;                      // Yes, get free space
+      sprintf ( reply, "Free memory is %d, ringbuf %d, stream %d",
+                system_get_free_heap_size(), rcount, mp3client->available() ) ;
     #endif
-    sprintf ( reply, "Free memory is %d, ringbuf %d, stream %d",
-              system_get_free_heap_size(), rcount, mp3client->available() ) ;
   }
   // Commands for bass/treble control
   else if ( argument.startsWith ( "tone" ) )          // Tone command
