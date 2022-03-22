@@ -40,6 +40,12 @@
 
 #include "patches/vs1053b-patches.h"
 
+enum VS1053_I2S_RATE {
+    VS1053_I2S_RATE_192_KHZ,
+    VS1053_I2S_RATE_96_KHZ,
+    VS1053_I2S_RATE_48_KHZ
+};
+
 class VS1053 {
 private:
     uint8_t cs_pin;                         // Pin where CS line is connected
@@ -70,6 +76,12 @@ private:
     const uint8_t SM_TESTS = 5;             // Bitnumber in SCI_MODE for tests
     const uint8_t SM_LINE1 = 14;            // Bitnumber in SCI_MODE for Line input
     const uint8_t SM_STREAM = 6;            // Bitnumber in SCI_MODE for Streaming Mode
+
+    const uint16_t ADDR_REG_GPIO_DDR_RW = 0xc017;
+    const uint16_t ADDR_REG_GPIO_VAL_R = 0xc018;
+    const uint16_t ADDR_REG_GPIO_ODATA_RW = 0xc019;
+    const uint16_t ADDR_REG_I2S_CONFIG_RW = 0xc040;
+
     SPISettings VS1053_SPI;                 // SPI settings for this slave
     uint8_t endFillByte;                    // Byte to send when stopping song
 protected:
@@ -166,6 +178,12 @@ public:
 
     // An optional switch preventing the module starting up in MIDI mode
     void switchToMp3Mode();
+
+    // disable I2S output; this is the default state
+    void disableI2sOut();
+
+    // enable I2S output (GPIO4=LRCLK/WSEL; GPIO5=MCLK; GPIO6=SCLK/BCLK; GPIO7=SDATA/DOUT)
+    void enableI2sOut(VS1053_I2S_RATE i2sRate = VS1053_I2S_RATE_48_KHZ);
 
     // Checks whether the VS1053 chip is connected and is able to exchange data to the ESP
     bool isChipConnected();

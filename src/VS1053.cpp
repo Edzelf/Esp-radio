@@ -319,11 +319,43 @@ void VS1053::printDetails(const char *header) {
  * Read more here: http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773
  */
 void VS1053::switchToMp3Mode() {
-    wram_write(0xC017, 3); // GPIO DDR = 3
-    wram_write(0xC019, 0); // GPIO ODATA = 0
+    wram_write(ADDR_REG_GPIO_DDR_RW, 3); // GPIO DDR = 3
+    wram_write(ADDR_REG_GPIO_ODATA_RW, 0); // GPIO ODATA = 0
     delay(100);
     LOG("Switched to mp3 mode\n");
     softReset();
+}
+
+void VS1053::disableI2sOut() {
+    wram_write(ADDR_REG_I2S_CONFIG_RW, 0x0000);
+
+    // configure GPIO0 4-7 (I2S) as input (default)
+    // leave other GPIOs unchanged
+    uint16_t cur_ddr = wram_read(ADDR_REG_GPIO_DDR_RW);
+    wram_write(ADDR_REG_GPIO_DDR_RW, cur_ddr & ~0x00f0);
+}
+
+void VS1053::enableI2sOut(VS1053_I2S_RATE i2sRate) {
+    // configure GPIO0 4-7 (I2S) as output
+    // leave other GPIOs unchanged
+    uint16_t cur_ddr = wram_read(ADDR_REG_GPIO_DDR_RW);
+    wram_write(ADDR_REG_GPIO_DDR_RW, cur_ddr | 0x00f0);
+
+    uint16_t i2s_config = 0x000c; // Enable MCLK(3); I2S(2)
+    switch (i2sRate) {
+        case VS1053_I2S_RATE_192_KHZ:
+            i2s_config |= 0x0002;
+            break;
+        case VS1053_I2S_RATE_96_KHZ:
+            i2s_config |= 0x0001;
+            break;
+        default:
+        case VS1053_I2S_RATE_48_KHZ:
+            // 0x0000
+            break;
+    }
+
+    wram_write(ADDR_REG_I2S_CONFIG_RW, i2s_config );
 }
 
 /**

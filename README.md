@@ -88,6 +88,23 @@ Above example and self-explanatory method name tells everything. It simply provi
 
 Optionally available is also `player.clearDecodedTime()` which clears decoded time (sets `SCI_DECODE_TIME` register to `0x00`).
 
+##### Enable I2S output
+
+```
+player.enableI2sOut(/* i2sRate: optional sampling rate, default is 48kHz */);
+player.disableI2sOut();
+```
+I2S output of the VS1053 chip can be enabled/disabled using methods `enableI2sOut` and `disableI2sOut`. When enabled, the gpio lines won't be available for other purposes. On reset the I2S output is disabled. The assignment to I2S lines is according to the table below:
+
+|  VS1053 GPIO | I2S            |
+|--------------|----------------|
+| 4            | LROUT / WSEL   |
+| 5            | MCLCK          |
+| 6            | SCLK / BCLK    |
+| 7            | SDATA / DOUT   |
+
+Refer to the [VS1053 datasheet](https://www.vlsi.fi/fileadmin/datasheets/vs1053.pdf) for details: the pin assignment is specified in section 5.1 on page 12, the I2S DAC interface is described in section 11.14 on page 83.
+
 #### Logging / debugging
 
 The library uses ESP Arduino framework built in logger (Arduino core for [ESP32](https://github.com/espressif/arduino-esp32/issues/893#issuecomment-348069135) and [ESP8266](https://github.com/esp8266/Arduino/blob/master/doc/Troubleshooting/debugging.rst#debug-level)).<br /> 
