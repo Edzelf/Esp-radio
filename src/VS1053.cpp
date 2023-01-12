@@ -297,6 +297,7 @@ void VS1053::streamModeOff() {
 void VS1053::printDetails(const char *header) {
     uint16_t regbuf[16];
     uint8_t i;
+    (void)regbuf;
 
     LOG("%s", header);
     LOG("REG   Contents\n");
