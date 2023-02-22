@@ -41,7 +41,7 @@ uint16_t VS1053::read_register(uint8_t _reg) const {
 
     control_mode_on();
     SPI.write(3);    // Read operation
-    SPI.write(_reg); // Register to write (0..0xF)
+    SPI.write(_reg); // Register to read (0..0xF)
     // Note: transfer16 does not seem to work
     result = (SPI.transfer(0xFF) << 8) | // Read 16 bits data
              (SPI.transfer(0xFF));
